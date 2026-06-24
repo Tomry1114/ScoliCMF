@@ -24,6 +24,8 @@ def main():
     args = ap.parse_args()
     cfg = load_config(args.config)
     n_steps = args.max_steps or cfg["training"]["n_steps"]
+    seed = cfg["training"].get("seed", 0)
+    torch.manual_seed(seed)
 
     acc = Accelerator(mixed_precision=cfg["training"]["mixed_precision"])
     device = acc.device
@@ -34,7 +36,8 @@ def main():
     H, W = cfg["data"]["size_h"], cfg["data"]["size_w"]
     ds = PairedSpineDataset(root=os.path.expanduser(cfg["data"]["root"]),
                             split=cfg["data"]["split"], size=(H, W),
-                            canon_dir=cfg["data"]["canon_dir"])
+                            canon_dir=cfg["data"]["canon_dir"],
+                            split_file=cfg["data"].get("split_file"))
     loader = DataLoader(ds, batch_size=cfg["training"]["batch_size"], shuffle=True,
                         num_workers=cfg["data"]["num_workers"], pin_memory=True, drop_last=True)
     loader = cycle(acc.prepare(loader))
@@ -87,6 +90,9 @@ def main():
         if acc.is_main_process and gs % cfg["training"]["log_step"] == 0:
             avg = {k: run[k] / max(1, cnt[k]) for k in run}
             pbar.set_postfix(**{k: round(x, 4) for k, x in avg.items()})
+            if "m_dyn_rms" in avg:
+                print("[diag step %d] m_dyn/m_static rms=%.4f l_span=%.4f" % (
+                    gs, avg["m_dyn_rms"]/max(1e-9, avg["m_static_rms"]), avg.get("l_span", 0)), flush=True)
             log_to_file(cfg["project"]["log_file"], gs, avg.get("l_span", 0.0),
                         avg.get("l_st", avg.get("l_end", 0.0)), opt.param_groups[0]["lr"])
             run, cnt = defaultdict(float), defaultdict(int)
@@ -99,8 +105,9 @@ def main():
                 save_image(grid, f"{cfg['project']['image_save_path']}/step_{gs}.png")
             model.train()
         if acc.is_main_process and gs % cfg["training"]["save_step"] == 0:
-            acc.save(acc.unwrap_model(model).state_dict(),
-                     os.path.join(cfg["project"]["checkpoint_path"], f"step_{gs}.pt"))
+            ckpt = {"model": acc.unwrap_model(model).state_dict(), "ema": ema.state_dict(),
+                    "optimizer": opt.state_dict(), "step": gs, "config": cfg, "seed": seed}
+            torch.save(ckpt, os.path.join(cfg["project"]["checkpoint_path"], f"step_{gs}.pt"))
 
 
 if __name__ == "__main__":

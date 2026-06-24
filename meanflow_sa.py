@@ -71,17 +71,17 @@ class SourceAnchoredMeanFlow:
         eps = torch.randn_like(x_pre) if self.sigma_m > 0 else None
         z_t = self.path.z_t(x_pre, x_post, t4, eps)
         z_r = self.path.z_t(x_pre, x_post, r4, eps)
-        u = model(z_t, r, t, x_pre)
+        u, aux = model(z_t, r, t, x_pre, return_aux=True)
         target = (z_t - z_r) / (t4 - r4).clamp_min(1e-6)
         l_span = adaptive_l2_loss(u - stopgrad(target))
 
         logs = {"l_span": l_span.detach()}
         loss = l_span
-        if self.lambda_time > 0:
-            lt = getattr(model, "last_l_time", None)
-            if torch.is_tensor(lt) and lt.requires_grad:
-                loss = loss + self.lambda_time * lt
-                logs["l_time"] = lt.detach()
+        if "m_dyn_rms" in aux:                       # #7 SC-PGA shortcut diagnostic
+            logs["m_dyn_rms"] = aux["m_dyn_rms"]; logs["m_static_rms"] = aux["m_static_rms"]
+        if self.lambda_time > 0 and torch.is_tensor(aux.get("l_time")) and aux["l_time"].requires_grad:
+            loss = loss + self.lambda_time * aux["l_time"]
+            logs["l_time"] = aux["l_time"].detach()
         if torch.rand(()).item() < self.rho_end:
             z0 = self.T(model, x_pre, torch.zeros(B, device=device), torch.ones(B, device=device), x_pre)
             l_end = (z0 - x_post).abs().mean()

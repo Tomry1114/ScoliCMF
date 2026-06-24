@@ -1,7 +1,7 @@
 """SC-PGA: Spinal-Chain Potential Gating Adapter (S5).
 
-Part 1 (this commit): projector library Pi_spine (J x J). ALL bake-off projectors are
-rank-K_g ORTHOGONAL projectors (Pi^T=Pi, Pi^2=Pi, rank=K_g) so G_graph isolates *which
+Projector library Pi_spine (J x J). The rank-matched (G_graph) projectors are
+ORTHOGONAL (Pi^T=Pi, Pi^2=Pi, rank=K_g); identity is the FULL-rank no-restriction ref so G_graph isolates *which
 subspace*, not soft-vs-hard or rank (R33-二). v2-Frozen uses residual-W2 adjacency
 (remove nominal axial spacing; Bures cov term; w_min>0 floor) on a DETACHED token graph.
 Token extractor / condition field / projection-last injection / L_time follow next.
@@ -189,6 +189,8 @@ class SCPGA(nn.Module):
         eb = e[:, None, :].expand(Bn, self.J, D)
         m_dyn = self._proj_apply(Pi, self.M_dyn(torch.cat([cbar, trend, eb], -1)))  # projection-last: Pi . M_dyn(cbar,d,e)
         m = m_static + m_dyn                                                 # (B,J,D)
+        aux = {"m_dyn_rms": m_dyn.detach().pow(2).mean().sqrt(),
+               "m_static_rms": m_static.detach().pow(2).mean().sqrt()}  # #7 shortcut diagnostic
 
         # axial map J -> gh, broadcast over gw -> (B, gh*gw, D); + global time
         c_axial = F.interpolate(m.transpose(1, 2), size=self.gh, mode="linear", align_corners=True)  # (B,D,gh)
@@ -198,5 +200,5 @@ class SCPGA(nn.Module):
         # temporal Sobolev L_time = sum_kl R_kl <A_k,A_l>
         R = self.leg.R.to(x_pre.device)
         lt_val = sum(R[k, l] * (A[k] * A[l]).mean() for k in range(self.Kt) for l in range(self.Kt))
-        self.last_l_time = lt_val
-        return c_patch
+        aux["l_time"] = lt_val
+        return c_patch, aux

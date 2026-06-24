@@ -1,12 +1,20 @@
-"""S5b evaluation harness: relative E_DC, projector bake-off, gates (G_struct/G_graph/
-S_order) with bootstrap CIs + paired non-inferiority. Gates are meaningful only on
-TRAINED checkpoints; --selftest runs a tiny random model to verify the harness.
+"""S5b evaluation + gates (real). Loads a trained checkpoint, evaluates on a held-out
+split, runs the projector bake-off and computes G_struct / G_graph / S_order with
+patient(+permutation) bootstrap CIs and a paired non-inferiority check.
 
-E_DC^rel = ||z0_1step - z0_2step||_1 / max(||x_post-x_pre||_1, q10)   (self-consistency,
-relative). Endpoint error ep1 = ||z0_1step - x_post||_1 is the external correctness anchor
-(R33-3 co-requirement). S_order = E_DC^perm - E_DC^correct via topology-only Pi permutation.
+Examples:
+  # single checkpoint, full metrics on val split:
+  python eval_gates.py --ckpt sa_long_ckpts/step_8000.pt --split val --json out.json
+  # bake-off across projector variants (needs one ckpt per variant):
+  python eval_gates.py --bakeoff v2=ck_v2.pt,v1=ck_v1.pt,dct=ck_dct.pt,random=ck_rand.pt,identity=ck_id.pt --split test
+
+E_DC^rel = ||z0_1step - z0_2step||_1 / max(||x_post-x_pre||_1, q10)   (self-consistency).
+Endpoint anchor ep1/ep4 = ||z0_kstep - x_post||_1 (external correctness). S_order = mean
+over several fixed perms of (E_DC^perm - E_DC^correct), topology-only (Pi permuted).
 """
 import argparse
+import json
+import os
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -30,71 +38,105 @@ def build_model(cfg, H, W, proj=None):
                  mlp_ratio=cfg["model"]["mlp_ratio"], cond_module=cond)
 
 
+def load_ckpt(path, cfg, H, W, proj, dev, use_ema=True):
+    state = torch.load(path, map_location=dev)
+    sd = state.get("ema") if (use_ema and isinstance(state, dict) and "ema" in state) else \
+         state.get("model", state)                      # rich dict or bare state_dict
+    m = build_model(cfg, H, W, proj).to(dev)
+    m.load_state_dict(sd)
+    m.eval()
+    return m
+
+
 @torch.no_grad()
-def edc_metrics(model, mf, loader, device, n_eval=64):
-    model.eval()
+def metrics(model, mf, loader, dev, n_eval=10**9):
     edc, delta, ep1, ep4 = [], [], [], []
     seen = 0
     for x_pre, x_post in loader:
-        x_pre, x_post = x_pre.to(device), x_post.to(device)
-        z1 = mf.sample(model, x_pre, steps=1)
-        z2 = mf.sample(model, x_pre, steps=2)
-        z4 = mf.sample(model, x_pre, steps=4)
-        f = lambda a, b: (a - b).abs().flatten(1).mean(1).cpu()
+        x_pre, x_post = x_pre.to(dev), x_post.to(dev)
+        z1, z2, z4 = (mf.sample(model, x_pre, steps=k) for k in (1, 2, 4))
+        f = lambda a, b: (a - b).abs().flatten(1).mean(1).cpu().numpy()
         edc.append(f(z1, z2)); delta.append(f(x_post, x_pre)); ep1.append(f(z1, x_post)); ep4.append(f(z4, x_post))
         seen += x_pre.shape[0]
         if seen >= n_eval:
             break
-    edc, delta, ep1, ep4 = [torch.cat(v).numpy() for v in (edc, delta, ep1, ep4)]
+    edc, delta, ep1, ep4 = (np.concatenate(v) for v in (edc, delta, ep1, ep4))
     q10 = float(np.quantile(delta, 0.1))
-    return dict(edc_rel=edc / np.maximum(delta, q10), edc_abs=edc, ep1=ep1, ep4=ep4)
+    return {"edc_rel": edc / np.maximum(delta, q10), "edc_abs": edc, "ep1": ep1, "ep4": ep4}
 
 
-def bootstrap_ci(x, B=2000, alpha=0.05, seed=0):
+def boot(x, B=2000, seed=0):
     rng = np.random.default_rng(seed)
-    n = len(x)
-    stats = np.array([x[rng.integers(0, n, n)].mean() for _ in range(B)])
-    return float(x.mean()), float(np.quantile(stats, alpha / 2)), float(np.quantile(stats, 1 - alpha / 2))
+    s = np.array([x[rng.integers(0, len(x), len(x))].mean() for _ in range(B)])
+    return float(x.mean()), float(np.quantile(s, 0.025)), float(np.quantile(s, 0.975))
 
 
-def gate_paired(sc, other, seed=0):
-    """G = other - sc (positive => SC has lower error). Returns mean + bootstrap LCB/UCB."""
-    m, lo, hi = bootstrap_ci(other - sc, seed=seed)
-    return {"mean": m, "lcb": lo, "ucb": hi}
-
-
-def s_order(model, mf, loader, device, J, n_eval=64, seed=0):
-    base = edc_metrics(model, mf, loader, device, n_eval)["edc_rel"]
-    perm = torch.randperm(J, generator=torch.Generator().manual_seed(seed))
-    model.cond.perm = perm
-    permd = edc_metrics(model, mf, loader, device, n_eval)["edc_rel"]
+@torch.no_grad()
+def s_order(model, mf, loader, dev, J, n_perm=4, n_eval=10**9):
+    base = metrics(model, mf, loader, dev, n_eval)["edc_rel"]
+    diffs = []
+    for p in range(n_perm):
+        model.cond.perm = torch.randperm(J, generator=torch.Generator().manual_seed(100 + p))
+        diffs.append(metrics(model, mf, loader, dev, n_eval)["edc_rel"] - base)   # paired per-patient
     model.cond.perm = None
-    return base, permd
+    return base, np.stack(diffs)            # (n_perm, n_patients)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt"); ap.add_argument("--config", default="configs/sc_pixel_long.yaml")
+    ap.add_argument("--split", default="val"); ap.add_argument("--proj", default=None)
+    ap.add_argument("--bakeoff", default=None, help="name=ckpt,name=ckpt,... (proj inferred from name)")
+    ap.add_argument("--n_eval", type=int, default=10**9); ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no_ema", action="store_true"); ap.add_argument("--json", default=None)
+    a = ap.parse_args()
+    cfg = load_config(a.config)
+    H, W = cfg["data"]["size_h"], cfg["data"]["size_w"]
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    split_file = os.path.expanduser(f"~/ScoliCMF/splits/{a.split}.txt")
+    ds = PairedSpineDataset(root=os.path.expanduser(cfg["data"]["root"]), size=(H, W), split_file=split_file)
+    loader = DataLoader(ds, batch_size=8, shuffle=False, num_workers=2)
+    mf = SourceAnchoredMeanFlow(gamma=cfg["meanflow"]["gamma"])
+    J = cfg["model"].get("J", 12)
+    print(f"[eval] split={a.split} n={len(ds)} dev={dev}")
+    out = {}
+
+    if a.bakeoff:
+        variants = dict(kv.split("=") for kv in a.bakeoff.split(","))
+        edc_by = {}
+        for name, ck in variants.items():
+            m = load_ckpt(ck, cfg, H, W, name, dev, use_ema=not a.no_ema)
+            r = metrics(m, mf, loader, dev, a.n_eval)
+            edc_by[name] = r["edc_rel"]
+            mu, lo, hi = boot(r["edc_rel"], seed=a.seed)
+            ep, _, _ = boot(r["ep1"], seed=a.seed)
+            print(f"  {name:10s} E_DC^rel={mu:.4f} [{lo:.4f},{hi:.4f}]  ep1={ep:.4f}")
+            out[name] = {"edc_rel": mu, "edc_ci": [lo, hi], "ep1": ep}
+        # gates (paired diffs; positive => SC lower error). G_struct vs global_base if present.
+        def gate(sc, other):
+            d = edc_by[other] - edc_by[sc]; m, lo, hi = boot(d, seed=a.seed); return {"mean": m, "lcb": lo, "ucb": hi}
+        if "identity" in edc_by:
+            rk = [k for k in ("dct", "random", "v1") if k in edc_by]
+            if "v2" in edc_by and rk:
+                worst = min(rk, key=lambda k: edc_by[k].mean())            # v2 must beat best rank-matched
+                out["G_graph"] = gate("v2", worst); print(f"  G_graph (v2 vs {worst}): {out['G_graph']}")
+        print(json.dumps(out, indent=2))
+    else:
+        assert a.ckpt, "need --ckpt or --bakeoff"
+        m = load_ckpt(a.ckpt, cfg, H, W, a.proj, dev, use_ema=not a.no_ema)
+        r = metrics(m, mf, loader, dev, a.n_eval)
+        for k in ("edc_rel", "ep1", "ep4"):
+            mu, lo, hi = boot(r[k], seed=a.seed); out[k] = {"mean": mu, "ci": [lo, hi]}
+            print(f"  {k:8s} = {mu:.4f}  95%CI=[{lo:.4f},{hi:.4f}]")
+        if cfg["model"].get("cond") == "scpga":
+            base, diffs = s_order(m, mf, loader, dev, J, n_perm=4, n_eval=a.n_eval)
+            flat = diffs.flatten()
+            mu, lo, hi = boot(flat, seed=a.seed)
+            out["S_order"] = {"mean": mu, "lcb": lo, "ucb": hi, "n_perm": diffs.shape[0]}
+            print(f"  S_order  = {mu:.4f}  95%CI=[{lo:.4f},{hi:.4f}]  (perm-correct, {diffs.shape[0]} perms)")
+    if a.json:
+        json.dump(out, open(a.json, "w"), indent=2); print("wrote", a.json)
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="configs/sc_pixel.yaml")
-    ap.add_argument("--selftest", action="store_true")
-    ap.add_argument("--n_eval", type=int, default=8)
-    args = ap.parse_args()
-    cfg = load_config(args.config)
-    H, W = cfg["data"]["size_h"], cfg["data"]["size_w"]
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
-
-    if args.selftest:                                   # tiny random model, verify harness only
-        cfg["model"].update(dim=64, depth=1, num_heads=4, J=8, Kg=3)
-    import os
-    ds = PairedSpineDataset(root=os.path.expanduser(cfg["data"]["root"]), split="train", size=(H, W))
-    loader = DataLoader(ds, batch_size=4, shuffle=False, num_workers=2)
-    mf = SourceAnchoredMeanFlow(gamma=cfg["meanflow"]["gamma"])
-
-    sc = build_model(cfg, H, W, proj="v2").to(dev)
-    base, permd = s_order(sc, mf, loader, dev, cfg["model"].get("J", 12), args.n_eval)
-    m_edc = bootstrap_ci(base)
-    so = gate_paired(base, permd)                       # S_order = E_DC^perm - E_DC^correct
-    print("[selftest] random-init harness check (numbers meaningless pre-training):")
-    print("  E_DC^rel: mean=%.4f  95%%CI=[%.4f,%.4f]" % m_edc)
-    print("  S_order (perm-correct): mean=%.4f LCB=%.4f UCB=%.4f" % (so["mean"], so["lcb"], so["ucb"]))
-    print("  harness OK: E_DC finite=%s, S_order intervention ran (perm changed Pi)"
-          % np.isfinite(base).all())
+    main()

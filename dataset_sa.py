@@ -35,6 +35,7 @@ class PairedSpineDataset(Dataset):
         size: Tuple[int, int] = (480, 240),   # (H, W) -> 240x480 portrait
         canon_dir: Optional[str] = None,
         return_stem: bool = False,
+        split_file: Optional[str] = None,
     ):
         super().__init__()
         self.return_stem = return_stem
@@ -47,6 +48,10 @@ class PairedSpineDataset(Dataset):
         self.pre = _stem_map(pre_d)
         self.post = _stem_map(post_d)
         self.stems = sorted(set(self.pre) & set(self.post))
+        if split_file is not None:
+            with open(os.path.expanduser(split_file)) as _fh:
+                _keep = {l.strip() for l in _fh if l.strip()}
+            self.stems = [s for s in self.stems if s in _keep]
         if not self.stems:
             raise RuntimeError(f"No paired stems found in {pre_d} / {post_d}")
         self.tf = T.Compose([T.Resize(size), T.ToTensor()])  # -> [1,H,W] in [0,1]

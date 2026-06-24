@@ -125,7 +125,7 @@ class FinalLayer(nn.Module):
 
     def forward(self, x, c):
         sh, sc = self.adaLN(c).chunk(2, dim=-1)
-        return self.linear(modulate(self.norm(x), sh, sc))
+        return self.linear(modulate(self.norm(x), sc, sh))   # (scale, shift) order fixed
 
 
 # ---------- conditioning seam (Base PGA now; SC-PGA replaces at S5) ----------
@@ -139,7 +139,9 @@ class BasePGACond(nn.Module):
     def forward(self, x_pre, r, t, t_emb, r_emb):
         tok = self.embed(x_pre)               # (B, Tc, D)
         cond = self.proj(tok.mean(dim=1))     # (B, D)
-        return t_emb + r_emb + cond
+        c = t_emb + r_emb + cond
+        z = c.new_zeros(())
+        return c, {"l_time": z, "m_dyn_rms": z, "m_static_rms": z}
 
 
 class SCDiT(nn.Module):
@@ -186,14 +188,14 @@ class SCDiT(nn.Module):
         x = torch.einsum("nhwpqc->nchpwq", x)
         return x.reshape(x.shape[0], c, gh * p, gw * p)
 
-    def forward(self, z_t, r, t, x_pre):
+    def forward(self, z_t, r, t, x_pre, return_aux=False):
         x_in = torch.cat([z_t, x_pre], dim=1)
         x = self.x_embedder(x_in) + self.pos_embed
-        c = self.cond(x_pre, r, t, self.t_embedder(t), self.r_embedder(r))
-        self.last_l_time = getattr(self.cond, "last_l_time", torch.zeros((), device=x.device))
+        c, aux = self.cond(x_pre, r, t, self.t_embedder(t), self.r_embedder(r))
         for blk in self.blocks:
             x = blk(x, c)
-        return self.unpatchify(self.final_layer(x, c))
+        u = self.unpatchify(self.final_layer(x, c))
+        return (u, aux) if return_aux else u
 
 
 # ---------- sincos pos embed (numpy-only, rectangular gh x gw) ----------
