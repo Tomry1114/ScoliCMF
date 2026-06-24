@@ -53,19 +53,20 @@ def load_ckpt(path, cfg, H, W, proj, dev, use_ema=True):
 
 @torch.no_grad()
 def metrics(model, mf, loader, dev, n_eval=10**9):
-    edc, delta, ep1, ep4 = [], [], [], []
+    edc, delta, ep1, ep2, ep4 = [], [], [], [], []
     seen = 0
     for x_pre, x_post in loader:
         x_pre, x_post = x_pre.to(dev), x_post.to(dev)
         z1, z2, z4 = (mf.sample(model, x_pre, steps=k) for k in (1, 2, 4))
         f = lambda a, b: (a - b).abs().flatten(1).mean(1).cpu().numpy()
-        edc.append(f(z1, z2)); delta.append(f(x_post, x_pre)); ep1.append(f(z1, x_post)); ep4.append(f(z4, x_post))
+        edc.append(f(z1, z2)); delta.append(f(x_post, x_pre)); ep1.append(f(z1, x_post))
+        ep2.append(f(z2, x_post)); ep4.append(f(z4, x_post))
         seen += x_pre.shape[0]
         if seen >= n_eval:
             break
-    edc, delta, ep1, ep4 = (np.concatenate(v) for v in (edc, delta, ep1, ep4))
+    edc, delta, ep1, ep2, ep4 = (np.concatenate(v) for v in (edc, delta, ep1, ep2, ep4))
     q10 = float(np.quantile(delta, 0.1))
-    return {"edc_rel": edc / np.maximum(delta, q10), "edc_abs": edc, "ep1": ep1, "ep4": ep4}
+    return {"edc_rel": edc / np.maximum(delta, q10), "edc_abs": edc, "ep1": ep1, "ep2": ep2, "ep4": ep4}
 
 
 def boot(x, B=2000, seed=0):
@@ -90,7 +91,8 @@ def shortcut_diag(model, mf, loader, dev, J, n_eval, seed=0):
     Compare ep1 & E_DC under: full / dyn_off (m_dyn=0) / permuted Pi (wrong chain)."""
     def run():
         r = metrics(model, mf, loader, dev, n_eval)
-        return float(r["ep1"].mean()), float(r["edc_rel"].mean())
+        return {"ep1": float(r["ep1"].mean()), "ep2": float(r["ep2"].mean()),
+                "ep4": float(r["ep4"].mean()), "edc": float(r["edc_rel"].mean())}
     out = {"full": run()}
     if hasattr(model.cond, "dyn_off"):
         old = model.cond.dyn_off; model.cond.dyn_off = True
@@ -154,14 +156,16 @@ def main():
             print(f"  S_order  = {mu:.4f}  95%CI=[{lo:.4f},{hi:.4f}]  (perm-correct, {diffs.shape[0]} perms)")
             d = shortcut_diag(m, mf, loader, dev, J, a.n_eval, seed=a.seed)
             out["shortcut_diag"] = d
-            print("  -- shortcut diag (ep1 / E_DC) --")
+            print("  -- shortcut diag: ep4 (few-NFE, chain ACTIVE)=accuracy probe ; ep1 (full-span, chain inert by design)=control --")
             for k in ("full", "dyn_off", "perm"):
                 if k in d:
-                    print("     %-8s ep1=%.4f  E_DC=%.4f" % (k, d[k][0], d[k][1]))
+                    v = d[k]
+                    print("     %-8s ep4=%.4f  ep2=%.4f  ep1=%.4f  E_DC=%.4f" % (k, v["ep4"], v["ep2"], v["ep1"], v["edc"]))
             fu = d["full"]
             if "dyn_off" in d:
-                print("     -> dyn_off ep1 delta = %+.4f  (~0 => m_dyn gives no accuracy)" % (d["dyn_off"][0] - fu[0]))
-            print("     -> perm     ep1 delta = %+.4f ; E_DC delta = %+.4f" % (d["perm"][0] - fu[0], d["perm"][1] - fu[1]))
+                print("     -> dyn_off  ep4 delta=%+.4f  (ep1=%+.4f control)" % (d["dyn_off"]["ep4"]-fu["ep4"], d["dyn_off"]["ep1"]-fu["ep1"]))
+            print("     -> perm     ep4 delta=%+.4f  E_DC delta=%+.4f  (ep1=%+.4f control)" % (d["perm"]["ep4"]-fu["ep4"], d["perm"]["edc"]-fu["edc"], d["perm"]["ep1"]-fu["ep1"]))
+            print("     (ep4 delta != 0 => chain DOES affect accuracy at few-NFE; ep1 ~0 is expected)")
     if a.json:
         json.dump(out, open(a.json, "w"), indent=2); print("wrote", a.json)
 
