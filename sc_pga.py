@@ -108,10 +108,11 @@ class ConvStem(nn.Module):
 class SCPGA(nn.Module):
     """Returns per-patch conditioning (B, gh*gw, D); stashes last_l_time. Base PGA = proj 'identity'."""
     def __init__(self, img_size, dim, patch_size, J=12, Kg=4, Kt=2,
-                 beta=40.0, eta=4.0, tau=1.0, w_min=0.1, proj="v2"):
+                 beta=40.0, eta=4.0, tau=1.0, w_min=0.1, proj="v2", dyn_off=False):
         super().__init__()
         self.dim, self.J, self.Kg, self.Kt = dim, J, Kg, Kt
         self.beta, self.eta, self.tau, self.w_min, self.proj = beta, eta, tau, w_min, proj
+        self.dyn_off = dyn_off   # #7 ablation: force m_dyn=0 (only static conditioning)
         ih, iw = img_size
         self.gh, self.gw = ih // patch_size, iw // patch_size
 
@@ -188,7 +189,7 @@ class SCPGA(nn.Module):
         m_static = self.M_static(Btok + self.A0(Btok) + e[:, None, :])       # (B,J,D)
         eb = e[:, None, :].expand(Bn, self.J, D)
         m_dyn = self._proj_apply(Pi, self.M_dyn(torch.cat([cbar, trend, eb], -1)))  # projection-last: Pi . M_dyn(cbar,d,e)
-        m = m_static + m_dyn                                                 # (B,J,D)
+        m = m_static if self.dyn_off else (m_static + m_dyn)                 # (B,J,D); dyn_off=#7 ablation
         aux = {"m_dyn_rms": m_dyn.detach().pow(2).mean().sqrt(),
                "m_static_rms": m_static.detach().pow(2).mean().sqrt()}  # #7 shortcut diagnostic
 

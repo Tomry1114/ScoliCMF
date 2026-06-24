@@ -48,7 +48,8 @@ def main():
         cond_module = SCPGA(img_size=(H, W), dim=cfg["model"]["dim"], patch_size=cfg["model"]["patch_size"],
                             J=cfg["model"].get("J", 12), Kg=cfg["model"].get("Kg", 4),
                             Kt=cfg["model"].get("Kt", 2), beta=cfg["model"].get("beta", 40.0),
-                            eta=cfg["model"].get("eta", 4.0), proj=cfg["model"].get("proj", "v2"))
+                            eta=cfg["model"].get("eta", 4.0), proj=cfg["model"].get("proj", "v2"),
+                            dyn_off=cfg["model"].get("dyn_off", False))
     model = SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"],
                   data_channels=cfg["data"]["data_channels"], cond_channels=cfg["data"]["cond_channels"],
                   dim=cfg["model"]["dim"], depth=cfg["model"]["depth"],

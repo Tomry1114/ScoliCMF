@@ -20,14 +20,17 @@ EXPS = [
     ("s5_scpga_dct",       "scpga", "dct",      0.05, 0.1, 0.1, 0.01),
     ("s5_scpga_v1",        "scpga", "v1",       0.05, 0.1, 0.1, 0.01),
     ("s5b_scpga_v2",       "scpga", "v2",       0.05, 0.1, 0.1, 0.01),
+    ("s5_scpga_v2_static", "scpga", "v2",       0.05, 0.1, 0.1, 0.01),  # dyn_off ablation
 ]
 
 
 def main():
     base = yaml.safe_load(open(BASE))
     for name, cond, proj, st, comp, roll, tm in EXPS:
+        dyn_off = name.endswith("_static")
         c = copy.deepcopy(base)
         c["model"]["cond"] = cond
+        c["model"]["dyn_off"] = dyn_off
         if proj is not None:
             c["model"]["proj"] = proj
         c["meanflow"].update(lambda_st=st, lambda_comp=comp, lambda_roll=roll, lambda_time=tm)
