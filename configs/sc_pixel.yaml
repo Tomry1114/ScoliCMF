@@ -29,6 +29,7 @@ model:
   Kt: 2
   beta: 40.0
   eta: 4.0
+  decode_head: "conv"     # conv (PixelShuffle, anti-checkerboard) | linear
 
 meanflow:
   gamma: 2.0               # source-anchored path curvature (fixed, v1)

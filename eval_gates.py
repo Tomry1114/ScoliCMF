@@ -36,7 +36,8 @@ def build_model(cfg, H, W, proj=None):
                      dyn_off=cfg["model"].get("dyn_off", False))
     return SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"], data_channels=1, cond_channels=1,
                  dim=cfg["model"]["dim"], depth=cfg["model"]["depth"], num_heads=cfg["model"]["num_heads"],
-                 mlp_ratio=cfg["model"]["mlp_ratio"], cond_module=cond)
+                 mlp_ratio=cfg["model"]["mlp_ratio"], cond_module=cond,
+                 decode_head=cfg["model"].get("decode_head", "conv"))
 
 
 def load_ckpt(path, cfg, H, W, proj, dev, use_ema=True):
@@ -81,6 +82,21 @@ def s_order(model, mf, loader, dev, J, n_perm=4, n_eval=10**9):
         diffs.append(metrics(model, mf, loader, dev, n_eval)["edc_rel"] - base)   # paired per-patient
     model.cond.perm = None
     return base, np.stack(diffs)            # (n_perm, n_patients)
+
+
+def shortcut_diag(model, mf, loader, dev, J, n_eval, seed=0):
+    """P1: does the chain mechanism convert into ACCURACY (ep) or only self-consistency?
+    Compare ep1 & E_DC under: full / dyn_off (m_dyn=0) / permuted Pi (wrong chain)."""
+    def run():
+        r = metrics(model, mf, loader, dev, n_eval)
+        return float(r["ep1"].mean()), float(r["edc_rel"].mean())
+    out = {"full": run()}
+    if hasattr(model.cond, "dyn_off"):
+        old = model.cond.dyn_off; model.cond.dyn_off = True
+        out["dyn_off"] = run(); model.cond.dyn_off = old
+    model.cond.perm = torch.randperm(J, generator=torch.Generator().manual_seed(seed))
+    out["perm"] = run(); model.cond.perm = None
+    return out
 
 
 def main():
@@ -135,6 +151,16 @@ def main():
             mu, lo, hi = boot(flat, seed=a.seed)
             out["S_order"] = {"mean": mu, "lcb": lo, "ucb": hi, "n_perm": diffs.shape[0]}
             print(f"  S_order  = {mu:.4f}  95%CI=[{lo:.4f},{hi:.4f}]  (perm-correct, {diffs.shape[0]} perms)")
+            d = shortcut_diag(m, mf, loader, dev, J, a.n_eval, seed=a.seed)
+            out["shortcut_diag"] = d
+            print("  -- shortcut diag (ep1 / E_DC) --")
+            for k in ("full", "dyn_off", "perm"):
+                if k in d:
+                    print("     %-8s ep1=%.4f  E_DC=%.4f" % (k, d[k][0], d[k][1]))
+            fu = d["full"]
+            if "dyn_off" in d:
+                print("     -> dyn_off ep1 delta = %+.4f  (~0 => m_dyn gives no accuracy)" % (d["dyn_off"][0] - fu[0]))
+            print("     -> perm     ep1 delta = %+.4f ; E_DC delta = %+.4f" % (d["perm"][0] - fu[0], d["perm"][1] - fu[1]))
     if a.json:
         json.dump(out, open(a.json, "w"), indent=2); print("wrote", a.json)
 

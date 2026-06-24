@@ -54,7 +54,7 @@ def main():
                   data_channels=cfg["data"]["data_channels"], cond_channels=cfg["data"]["cond_channels"],
                   dim=cfg["model"]["dim"], depth=cfg["model"]["depth"],
                   num_heads=cfg["model"]["num_heads"], mlp_ratio=cfg["model"]["mlp_ratio"],
-                  cond_module=cond_module)
+                  cond_module=cond_module, decode_head=cfg["model"].get("decode_head", "conv"))
     opt = torch.optim.AdamW(model.parameters(), lr=float(cfg["training"]["lr"]),
                             weight_decay=cfg["training"]["weight_decay"])
     mf = SourceAnchoredMeanFlow(gamma=cfg["meanflow"]["gamma"], sigma_m=cfg["meanflow"]["sigma_m"],

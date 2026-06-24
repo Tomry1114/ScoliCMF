@@ -128,6 +128,29 @@ class FinalLayer(nn.Module):
         return self.linear(modulate(self.norm(x), sc, sh))   # (scale, shift) order fixed
 
 
+class ConvHead(nn.Module):
+    """Tokens (B,T,D) -> image via PixelShuffle + conv refine. Cross-patch receptive field
+    kills the linear-unpatchify 16x16 checkerboard and lifts endpoint fidelity (P0 fix)."""
+    def __init__(self, dim, patch_size, gh, gw, out_ch):
+        super().__init__()
+        self.gh, self.gw = gh, gw
+        self.norm = RMSNorm(dim)
+        self.adaLN = nn.Sequential(nn.SiLU(), nn.Linear(dim, 2 * dim))
+        hid = max(32, dim // 2)
+        self.proj = nn.Conv2d(dim, hid * patch_size * patch_size, 1)
+        self.ps = nn.PixelShuffle(patch_size)
+        self.refine = nn.Sequential(
+            nn.Conv2d(hid, hid, 3, padding=1), nn.GELU(),
+            nn.Conv2d(hid, out_ch, 3, padding=1),
+        )
+
+    def forward(self, x, c):
+        sh, sc = self.adaLN(c).chunk(2, dim=-1)
+        x = modulate(self.norm(x), sc, sh)                                  # (B,T,D)
+        x = x.transpose(1, 2).reshape(x.shape[0], -1, self.gh, self.gw)     # (B,D,gh,gw)
+        return self.refine(self.ps(self.proj(x)))                           # (B,out,gh*p,gw*p)
+
+
 # ---------- conditioning seam (Base PGA now; SC-PGA replaces at S5) ----------
 class BasePGACond(nn.Module):
     """Global x_pre conditioning (Pi = I, no spinal restriction). Returns (B, D)."""
@@ -146,7 +169,7 @@ class BasePGACond(nn.Module):
 
 class SCDiT(nn.Module):
     def __init__(self, img_size=(480, 240), patch_size=8, data_channels=1, cond_channels=1,
-                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, cond_module=None):
+                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, cond_module=None, decode_head="conv"):
         super().__init__()
         self.data_channels = data_channels
         self.out_channels = data_channels
@@ -162,7 +185,8 @@ class SCDiT(nn.Module):
 
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=True)
         self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio) for _ in range(depth)])
-        self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
+        self.head = (ConvHead(dim, patch_size, self.gh, self.gw, self.out_channels)
+                     if decode_head == "conv" else FinalLayer(dim, patch_size, self.out_channels))
         self._init()
 
     def _init(self):
@@ -177,10 +201,14 @@ class SCDiT(nn.Module):
         for blk in self.blocks:
             nn.init.constant_(blk.adaLN[-1].weight, 0)
             nn.init.constant_(blk.adaLN[-1].bias, 0)
-        nn.init.constant_(self.final_layer.adaLN[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
+        nn.init.constant_(self.head.adaLN[-1].weight, 0)
+        nn.init.constant_(self.head.adaLN[-1].bias, 0)
+        if isinstance(self.head, ConvHead):
+            nn.init.constant_(self.head.refine[-1].weight, 0)
+            nn.init.constant_(self.head.refine[-1].bias, 0)
+        else:
+            nn.init.constant_(self.head.linear.weight, 0)
+            nn.init.constant_(self.head.linear.bias, 0)
 
     def unpatchify(self, x):
         c, p, gh, gw = self.out_channels, self.patch_size, self.gh, self.gw
@@ -194,7 +222,7 @@ class SCDiT(nn.Module):
         c, aux = self.cond(x_pre, r, t, self.t_embedder(t), self.r_embedder(r))
         for blk in self.blocks:
             x = blk(x, c)
-        u = self.unpatchify(self.final_layer(x, c))
+        u = self.head(x, c) if isinstance(self.head, ConvHead) else self.unpatchify(self.head(x, c))
         return (u, aux) if return_aux else u
 
 

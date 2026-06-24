@@ -27,6 +27,7 @@ model:
   Kt: 2
   beta: 40.0
   eta: 4.0
+  decode_head: conv
   dyn_off: false
 meanflow:
   gamma: 2.0
