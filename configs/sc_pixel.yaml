@@ -1,0 +1,54 @@
+# S2 pixel-first source-anchored MeanFlow + Base PGA (Pi=I). 240x480 grayscale.
+project:
+  image_save_path: "sa_training_images"
+  checkpoint_path: "sa_checkpoints"
+  log_file: "sa_log.txt"
+
+data:
+  root: "data/Spine生成_Miccai数据集"
+  split: "train"
+  size_h: 480
+  size_w: 240
+  data_channels: 1
+  cond_channels: 1
+  canon_dir: null          # null = raw *_standardized (geometric canon deferred)
+  num_workers: 8
+
+model:
+  patch_size: 16
+  dim: 256
+  depth: 8
+  num_heads: 8
+  mlp_ratio: 4.0
+  cond: "scpga"            # base (Pi=I global) | scpga
+  proj: "v2"               # SC-PGA projector: identity/random/dct/gaussian/toeplitz/v1/v2
+  J: 12
+  Kg: 4
+  Kt: 2
+  beta: 40.0
+  eta: 4.0
+
+meanflow:
+  gamma: 2.0               # source-anchored path curvature (fixed, v1)
+  sigma_m: 0.0             # source noise off (deterministic; UQ deferred)
+  lambda_end: 1.0
+  rho_end: 0.25            # prob of including full-span L_end per step
+  lambda_st: 0.05          # S3: secant-tangent regularizer weight (small)
+  st_mode: "detach"        # detach (main) | full (full-grad ablation); off => set lambda_st 0
+  jvp_api: "autograd"      # autograd | funtorch
+  lambda_comp: 0.1         # S4: composition consistency vs EMA teacher (ramped)
+  lambda_roll: 0.1         # S4: real-trajectory anchor (leads early)
+  comp_ramp_steps: 2000    # lambda_comp ramps 0->max over these steps
+  ema_decay: 0.999         # EMA teacher decay
+  lambda_time: 0.01        # S5: temporal Sobolev reg on dynamic modes
+
+training:
+  n_steps: 200000
+  batch_size: 8
+  lr: 0.0001
+  weight_decay: 0.0
+  mixed_precision: "no"    # fp32 for smoke (mixed-precision later; protects fp32 divided-diff at S5)
+  log_step: 50
+  sample_step: 500
+  save_step: 2000
+  sample_steps: 4          # few-NFE inference for visualization

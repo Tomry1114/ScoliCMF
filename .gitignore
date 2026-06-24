@@ -1,0 +1,23 @@
+# ===== data + generated artifacts (never commit) =====
+data/
+# checkpoints
+checkpoints/
+sa_checkpoints/
+sa_long_ckpts/
+*.pt
+*.ckpt
+# generated images
+training_images/
+sa_training_images/
+sa_long_images/
+infer_results/
+# logs
+*.log
+log.txt
+sa_log.txt
+sa_long_log.txt
+*_uncommitted_*.patch
+# python
+__pycache__/
+*.pyc
+.DS_Store
