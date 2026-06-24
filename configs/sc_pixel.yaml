@@ -1,4 +1,5 @@
-# S2 pixel-first source-anchored MeanFlow + Base PGA (Pi=I). 240x480 grayscale.
+# DEV/base config (currently full S5: scpga/v2 + all losses). For matched claim-ladder
+# experiments use the per-method configs/s{2,3,4,5}*.yaml from tools/gen_configs.py.
 project:
   image_save_path: "sa_training_images"
   checkpoint_path: "sa_checkpoints"
@@ -12,6 +13,7 @@ data:
   data_channels: 1
   cond_channels: 1
   canon_dir: null          # null = raw *_standardized (geometric canon deferred)
+  split_file: "splits/train.txt"   # patient-level split (val/test held out)
   num_workers: 8
 
 model:
@@ -47,6 +49,7 @@ training:
   batch_size: 8
   lr: 0.0001
   weight_decay: 0.0
+  seed: 1114
   mixed_precision: "no"    # fp32 for smoke (mixed-precision later; protects fp32 divided-diff at S5)
   log_step: 50
   sample_step: 500

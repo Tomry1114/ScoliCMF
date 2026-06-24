@@ -79,7 +79,7 @@ def main():
     model.train()
     for step in pbar:
         x_pre, x_post = next(loader)
-        loss, logs = mf.loss(acc.unwrap_model(model), x_pre, x_post, teacher=ema, step=step)
+        loss, logs = mf.loss(model, x_pre, x_post, teacher=ema, step=step)  # wrapped model -> DDP syncs
         opt.zero_grad(); acc.backward(loss); opt.step()
         with torch.no_grad():
             for pe, pm in zip(ema.parameters(), acc.unwrap_model(model).parameters()):

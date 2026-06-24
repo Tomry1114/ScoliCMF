@@ -39,8 +39,10 @@ class SourceAnchoredMeanFlow:
         z = self.path.z_t(x_pre, x_post, t4, eps)
         v_star = self.path.v_star(x_pre, x_post, t4, eps)
 
+        core = getattr(model, "module", model)   # JVP needs unwrapped module (DDP+functional.jvp incompatible)
+
         def f(z_in, r_in, t_in):
-            return model(z_in, r_in, t_in, x_pre)
+            return core(z_in, r_in, t_in, x_pre)
 
         tangents = (v_star, torch.zeros_like(r), torch.ones_like(t))
         if self.jvp_api == "autograd":
