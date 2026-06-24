@@ -30,6 +30,7 @@ model:
   beta: 40.0
   eta: 4.0
   decode_head: "conv"     # conv (PixelShuffle, anti-checkerboard) | linear
+  xpre_mode: "blur"       # full | blur | none : attenuate cat([z_t,x_pre]) shortcut (P1)
 
 meanflow:
   gamma: 2.0               # source-anchored path curvature (fixed, v1)

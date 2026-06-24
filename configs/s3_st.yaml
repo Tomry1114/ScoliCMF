@@ -28,6 +28,7 @@ model:
   beta: 40.0
   eta: 4.0
   decode_head: conv
+  xpre_mode: blur
   dyn_off: false
 meanflow:
   gamma: 2.0

@@ -37,7 +37,8 @@ def build_model(cfg, H, W, proj=None):
     return SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"], data_channels=1, cond_channels=1,
                  dim=cfg["model"]["dim"], depth=cfg["model"]["depth"], num_heads=cfg["model"]["num_heads"],
                  mlp_ratio=cfg["model"]["mlp_ratio"], cond_module=cond,
-                 decode_head=cfg["model"].get("decode_head", "conv"))
+                 decode_head=cfg["model"].get("decode_head", "conv"),
+                 xpre_mode=cfg["model"].get("xpre_mode", "full"))
 
 
 def load_ckpt(path, cfg, H, W, proj, dev, use_ema=True):

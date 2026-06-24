@@ -169,7 +169,8 @@ class BasePGACond(nn.Module):
 
 class SCDiT(nn.Module):
     def __init__(self, img_size=(480, 240), patch_size=8, data_channels=1, cond_channels=1,
-                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, cond_module=None, decode_head="conv"):
+                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, cond_module=None, decode_head="conv",
+                 xpre_mode="full"):
         super().__init__()
         self.data_channels = data_channels
         self.out_channels = data_channels
@@ -177,7 +178,9 @@ class SCDiT(nn.Module):
         ih, iw = img_size
         self.gh, self.gw = ih // patch_size, iw // patch_size
 
-        self.x_embedder = PatchEmbed(img_size, patch_size, data_channels + cond_channels, dim)
+        self.xpre_mode = xpre_mode   # full | blur | none : P1 anti-shortcut on the cat([z_t,x_pre]) path
+        _xc = 0 if xpre_mode == "none" else cond_channels
+        self.x_embedder = PatchEmbed(img_size, patch_size, data_channels + _xc, dim)
         self.t_embedder = TimestepEmbedder(dim)
         self.r_embedder = TimestepEmbedder(dim)
         self.cond = cond_module if cond_module is not None else \
@@ -217,7 +220,14 @@ class SCDiT(nn.Module):
         return x.reshape(x.shape[0], c, gh * p, gw * p)
 
     def forward(self, z_t, r, t, x_pre, return_aux=False):
-        x_in = torch.cat([z_t, x_pre], dim=1)
+        if self.xpre_mode == "none":
+            x_in = z_t
+        elif self.xpre_mode == "blur":
+            xb = F.interpolate(F.interpolate(x_pre, scale_factor=0.125, mode="bilinear", align_corners=False),
+                               size=x_pre.shape[-2:], mode="bilinear", align_corners=False)
+            x_in = torch.cat([z_t, xb], dim=1)   # blurred x_pre: keeps gross pose, removes pixel-copy
+        else:
+            x_in = torch.cat([z_t, x_pre], dim=1)
         x = self.x_embedder(x_in) + self.pos_embed
         c, aux = self.cond(x_pre, r, t, self.t_embedder(t), self.r_embedder(r))
         for blk in self.blocks:
