@@ -37,7 +37,8 @@ def main():
     ds = PairedSpineDataset(root=os.path.expanduser(cfg["data"]["root"]),
                             split=cfg["data"]["split"], size=(H, W),
                             canon_dir=cfg["data"]["canon_dir"],
-                            split_file=cfg["data"].get("split_file"))
+                            split_file=cfg["data"].get("split_file"),
+                            augment=cfg["data"].get("augment", False))
     loader = DataLoader(ds, batch_size=cfg["training"]["batch_size"], shuffle=True,
                         num_workers=cfg["data"]["num_workers"], pin_memory=True, drop_last=True)
     loader = cycle(acc.prepare(loader))
@@ -66,7 +67,9 @@ def main():
                                 lambda_comp=cfg["meanflow"].get("lambda_comp", 0.0),
                                 lambda_roll=cfg["meanflow"].get("lambda_roll", 0.0),
                                 comp_ramp_steps=cfg["meanflow"].get("comp_ramp_steps", 2000),
-                                lambda_time=cfg["meanflow"].get("lambda_time", 0.0))
+                                lambda_time=cfg["meanflow"].get("lambda_time", 0.0),
+                                lambda_end_roll=cfg["meanflow"].get("lambda_end_roll", 0.0),
+                                end_roll_steps=cfg["meanflow"].get("end_roll_steps", 2))
     model, opt = acc.prepare(model, opt)
     ema = copy.deepcopy(acc.unwrap_model(model)).to(device).eval()
     for _p in ema.parameters():

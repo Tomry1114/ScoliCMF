@@ -36,6 +36,7 @@ class PairedSpineDataset(Dataset):
         canon_dir: Optional[str] = None,
         return_stem: bool = False,
         split_file: Optional[str] = None,
+        augment: bool = False,
     ):
         super().__init__()
         self.return_stem = return_stem
@@ -55,6 +56,7 @@ class PairedSpineDataset(Dataset):
         if not self.stems:
             raise RuntimeError(f"No paired stems found in {pre_d} / {post_d}")
         self.tf = T.Compose([T.Resize(size), T.ToTensor()])  # -> [1,H,W] in [0,1]
+        self.augment = augment
 
     def __len__(self):
         return len(self.stems)
@@ -63,6 +65,8 @@ class PairedSpineDataset(Dataset):
         s = self.stems[i]
         x_pre = self.tf(Image.open(self.pre[s]).convert("L"))
         x_post = self.tf(Image.open(self.post[s]).convert("L"))
+        if self.augment and bool(torch.rand(()) < 0.5):    # horizontal flip both (valid mirror aug)
+            x_pre, x_post = torch.flip(x_pre, [-1]), torch.flip(x_post, [-1])
         if self.return_stem:
             return x_pre, x_post, s
         return x_pre, x_post

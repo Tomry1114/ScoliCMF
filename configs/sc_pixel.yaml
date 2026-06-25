@@ -14,6 +14,7 @@ data:
   cond_channels: 1
   canon_dir: null          # null = raw *_standardized (geometric canon deferred)
   split_file: "splits/train.txt"   # patient-level split (val/test held out)
+  augment: true            # horizontal-flip augmentation (train only)
   num_workers: 8
 
 model:
@@ -34,9 +35,11 @@ model:
 
 meanflow:
   gamma: 2.0               # source-anchored path curvature (fixed, v1)
-  sigma_m: 0.0             # source noise off (deterministic; UQ deferred)
-  lambda_end: 1.0
-  rho_end: 0.25            # prob of including full-span L_end per step
+  sigma_m: 0.1             # source noise ON (degrades x_post leak in z_t)
+  lambda_end: 2.0
+  lambda_end_roll: 2.0     # few-step no-leak rollout endpoint loss (the real task)
+  end_roll_steps: 2
+  rho_end: 1.0             # ALWAYS include L_end (no-leak signal must dominate)
   lambda_st: 0.05          # S3: secant-tangent regularizer weight (small)
   st_mode: "detach"        # detach (main) | full (full-grad ablation); off => set lambda_st 0
   jvp_api: "autograd"      # autograd | funtorch
@@ -50,7 +53,7 @@ training:
   n_steps: 200000
   batch_size: 8
   lr: 0.0001
-  weight_decay: 0.0
+  weight_decay: 0.02
   seed: 1114
   mixed_precision: "no"    # fp32 for smoke (mixed-precision later; protects fp32 divided-diff at S5)
   log_step: 50

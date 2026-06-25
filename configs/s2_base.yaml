@@ -13,6 +13,7 @@ data:
   cond_channels: 1
   canon_dir: null
   split_file: splits/train.txt
+  augment: true
   num_workers: 8
 model:
   patch_size: 16
@@ -32,9 +33,11 @@ model:
   dyn_off: false
 meanflow:
   gamma: 2.0
-  sigma_m: 0.0
-  lambda_end: 1.0
-  rho_end: 0.25
+  sigma_m: 0.1
+  lambda_end: 2.0
+  lambda_end_roll: 2.0
+  end_roll_steps: 2
+  rho_end: 1.0
   lambda_st: 0.0
   st_mode: detach
   jvp_api: autograd
@@ -47,7 +50,7 @@ training:
   n_steps: 200000
   batch_size: 8
   lr: 0.0001
-  weight_decay: 0.0
+  weight_decay: 0.02
   seed: 1114
   mixed_precision: 'no'
   log_step: 50

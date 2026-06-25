@@ -19,7 +19,8 @@ def _v4(x):
 class SourceAnchoredMeanFlow:
     def __init__(self, gamma=2.0, sigma_m=0.0, lambda_end=1.0, rho_end=0.25,
                  lambda_st=0.0, st_mode="detach", jvp_api="autograd",
-                 lambda_comp=0.0, lambda_roll=0.0, comp_ramp_steps=2000, lambda_time=0.0):
+                 lambda_comp=0.0, lambda_roll=0.0, comp_ramp_steps=2000, lambda_time=0.0,
+                 lambda_end_roll=0.0, end_roll_steps=2):
         self.path = SourceAnchoredPath(gamma, sigma_m)
         self.sigma_m = sigma_m
         self.lambda_end, self.rho_end = lambda_end, rho_end
@@ -27,6 +28,7 @@ class SourceAnchoredMeanFlow:
         self.lambda_comp, self.lambda_roll = lambda_comp, lambda_roll
         self.comp_ramp_steps = comp_ramp_steps
         self.lambda_time = lambda_time
+        self.lambda_end_roll, self.end_roll_steps = lambda_end_roll, end_roll_steps
 
     def T(self, model, z, r, t, x_pre):
         return z - _v4(t - r) * model(z, r, t, x_pre)
@@ -89,6 +91,16 @@ class SourceAnchoredMeanFlow:
             l_end = (z0 - x_post).abs().mean()
             loss = loss + self.lambda_end * l_end
             logs["l_end"] = l_end.detach()
+        if self.lambda_end_roll > 0:                  # few-step NO-LEAK endpoint: roll x_pre -> x_post
+            z = x_pre
+            tv = torch.linspace(1.0, 0.0, self.end_roll_steps + 1, device=device)
+            for i in range(self.end_roll_steps):
+                tt = torch.full((B,), tv[i].item(), device=device)
+                rr = torch.full((B,), tv[i + 1].item(), device=device)
+                z = z - _v4(tt - rr) * model(z, rr, tt, x_pre)
+            l_end_roll = (z - x_post).abs().mean()
+            loss = loss + self.lambda_end_roll * l_end_roll
+            logs["l_end_roll"] = l_end_roll.detach()
         if self.lambda_st > 0:
             l_st = self._l_st(model, x_pre, x_post)
             loss = loss + self.lambda_st * l_st
