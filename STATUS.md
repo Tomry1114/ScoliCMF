@@ -47,3 +47,19 @@
 - **里程碑: 全方法 S1–S5b 代码实现 + 逐件 smoke 验证完毕**(像素先行)。
 - **下一步 = 正式长训**(非 debug 30min; 需 GPU 时段, 与 OptiMem 错开): 训练 v2-SC-PGA 主模型 + bake-off 各变体 → eval_gates 出 E_DC/三门/NI/Cobb。 之后按 claim ladder 裁决"骨科"强度 + 决定潜空间迁移(AE+P3)。
 - 文件清单: dataset_sa / tools/canonicalize / path_sa / legendre / sc_pga / models/sc_dit / meanflow_sa / losses / train_sa / eval_gates / configs/sc_pixel.yaml / scripts/smoke_s{2,3,4,5}.sh。
+
+## 更新 2026-06-24 R42 — code-review 修复(P0 完成)
+- 批次1-3 ✓: FinalLayer 修正/return_aux 重构/m_dyn-m_static 诊断; train/val/test 划分(432/54/54)+富 ckpt; eval_gates 真评测(load ckpt+gates+bootstrap)。
+- 首个真实评测(pilot step4000@val): E_DC^rel 0.142, S_order +0.0137(CI排除0=链拓扑被用), 但 ep4>ep1(组合没帮端点, 黄旗)。 旧码 ckpt=harness 验证非论文证据。
+- pilot job 9911381 健康继续跑(step5000 锐化/矫正方向对, loss 0.086)。 已 push GitHub。
+- **余下 P1**: 批次4 config 拆实验 yaml+命名(global_base/scpga_*); 批次5 诊断可视化(m_dyn-off 消融/cross-patient swap/xc/attn/邻接 可视化)。 之后用修好的码起正式训练 → 真实门裁决。
+
+## 更新 2026-06-26 R49 — 创新点对照验证（原始 ScoliCMF vs s5b）
+- **泄漏已修 + 创新已证**：R48 修掉 z_t→x_post 泄漏(val 不再塌成恒等)；R49 在匹配 harness 下证明创新点有效。
+- **对照(同数据/split/480×240/regime/eval，各取 best-val，val n=54)**：
+  - 原始 ScoliCMF(noise→image+FGA, 33.79M, step16k): val SSIM 0.130@1 / 0.194@4 / 0.191@20，PSNR 11.4，train≈val(欠拟合)。
+  - **s5b(源锚定+SC-PGA, 19.7M, step4k): val SSIM 0.258@1 / 0.236@4，PSNR 13.97** → 每个 NFE 都赢，best +35%，1NFE +98%。
+  - 结论: 源锚定+SC-PGA 用 1/20 NFE、6 成参数，val 大幅领先；train 侧也赢(原始天花板 0.19，s5b 0.27→0.46)。
+- **遗留**：绝对 SSIM 仍 0.19–0.26(432 样本)；s5b 过 step4k 过拟合(best-val=step4000)；原始 16k 仍极缓升但基本走平。
+- **产物**：baseline_orig/(4 脚本)；runs/orig_baseline/(16 ckpt)；runs/{orig_sweep,orig_final16k,s5b_4k_final}.out。
+- **下一步候选**：(a) 把对照做成论文表(加 test 集 + bootstrap CI + 蒙太奇)；(b) 推 s5b best-val 更高(更强正则/缩容量/更多数据/预训练)；(c) 原始 baseline 训更久确认 plateau<0.20。

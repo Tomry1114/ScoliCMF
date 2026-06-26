@@ -21,3 +21,9 @@ sa_long_log.txt
 __pycache__/
 *.pyc
 .DS_Store
+runs/
+eval_viz/
+eval_viz_train/
+cmp_1500.png
+cmp_2k_4k/
+baseline_orig/__pycache__/
