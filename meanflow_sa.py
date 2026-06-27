@@ -58,8 +58,9 @@ class SourceAnchoredMeanFlow:
     def _l_comp_roll(self, model, teacher, x_pre, x_post):
         B, device = x_pre.shape[0], x_pre.device
         r, s, t = sample_triplet(B, device)
-        z_t = self.path.z_t(x_pre, x_post, _v4(t))
-        z_r = self.path.z_t(x_pre, x_post, _v4(r))
+        eps = torch.randn_like(x_pre) if self.sigma_m > 0 else None   # P0 FIX: SAME eps for z_t & z_r
+        z_t = self.path.z_t(x_pre, x_post, _v4(t), eps)
+        z_r = self.path.z_t(x_pre, x_post, _v4(r), eps)
         z_s = z_t - _v4(t - s) * model(z_t, s, t, x_pre)            # student step t->s
         z_r_comp = z_s - _v4(s - r) * model(z_s, r, s, x_pre)        # student step s->r
         with torch.no_grad():                                       # detached EMA-teacher direct t->r
@@ -112,6 +113,17 @@ class SourceAnchoredMeanFlow:
             logs["l_comp"] = l_comp.detach()
             logs["l_roll"] = l_roll.detach()
         return loss, logs
+
+    def rollout_pred(self, model, x_pre, steps=4):
+        """DIFFERENTIABLE few-step x_pre -> x_post rollout (for adversarial/perceptual G losses)."""
+        B, device = x_pre.shape[0], x_pre.device
+        z = x_pre
+        tv = torch.linspace(1.0, 0.0, steps + 1, device=device)
+        for i in range(steps):
+            t = torch.full((B,), tv[i].item(), device=device)
+            r = torch.full((B,), tv[i + 1].item(), device=device)
+            z = self.T(model, z, r, t, x_pre)
+        return z
 
     @torch.no_grad()
     def sample(self, model, x_pre, steps=4):

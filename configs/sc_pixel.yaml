@@ -18,7 +18,7 @@ data:
   num_workers: 8
 
 model:
-  patch_size: 16
+  patch_size: 8
   dim: 256
   depth: 8
   num_heads: 8
@@ -50,13 +50,13 @@ meanflow:
   lambda_time: 0.01        # S5: temporal Sobolev reg on dynamic modes
 
 training:
-  n_steps: 200000
-  batch_size: 8
+  n_steps: 5000
+  batch_size: 4
   lr: 0.0001
   weight_decay: 0.02
   seed: 1114
   mixed_precision: "no"    # fp32 for smoke (mixed-precision later; protects fp32 divided-diff at S5)
   log_step: 50
   sample_step: 500
-  save_step: 2000
+  save_step: 500
   sample_steps: 4          # few-NFE inference for visualization

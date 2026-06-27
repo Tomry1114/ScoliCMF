@@ -1,0 +1,58 @@
+data:
+  augment: false
+  canon_dir: null
+  cond_channels: 1
+  data_channels: 1
+  num_workers: 8
+  root: "data/Spine\u751F\u6210_Miccai\u6570\u636E\u96C6"
+  size_h: 480
+  size_w: 240
+  split: train
+  split_file: splits/overfit8.txt
+experiment: of8
+meanflow:
+  comp_ramp_steps: 2000
+  ema_decay: 0.999
+  end_roll_steps: 2
+  gamma: 2.0
+  jvp_api: autograd
+  lambda_comp: 0.0
+  lambda_end: 2.0
+  lambda_end_roll: 2.0
+  lambda_roll: 0.0
+  lambda_st: 0.0
+  lambda_time: 0.0
+  rho_end: 1.0
+  sigma_m: 0.1
+  st_mode: detach
+model:
+  J: 12
+  Kg: 4
+  Kt: 2
+  beta: 40.0
+  cond: base
+  decode_head: conv
+  depth: 8
+  dim: 256
+  dyn_off: false
+  eta: 4.0
+  mlp_ratio: 4.0
+  num_heads: 8
+  patch_size: 8
+  proj: v2
+  xpre_mode: blur
+project:
+  checkpoint_path: runs/of8/ckpts
+  image_save_path: runs/of8/images
+  log_file: runs/of8/log.txt
+training:
+  batch_size: 4
+  log_step: 50
+  lr: 0.0001
+  mixed_precision: 'no'
+  n_steps: 1200
+  sample_step: 100
+  sample_steps: 4
+  save_step: 400
+  seed: 1114
+  weight_decay: 0.02

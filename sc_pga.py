@@ -108,11 +108,13 @@ class ConvStem(nn.Module):
 class SCPGA(nn.Module):
     """Returns per-patch conditioning (B, gh*gw, D); stashes last_l_time. Base PGA = proj 'identity'."""
     def __init__(self, img_size, dim, patch_size, J=12, Kg=4, Kt=2,
-                 beta=40.0, eta=4.0, tau=1.0, w_min=0.1, proj="v2", dyn_off=False):
+                 beta=40.0, eta=4.0, tau=1.0, w_min=0.1, proj="v2", dyn_off=False,
+                 cond_mode="secant_full"):
         super().__init__()
         self.dim, self.J, self.Kg, self.Kt = dim, J, Kg, Kt
         self.beta, self.eta, self.tau, self.w_min, self.proj = beta, eta, tau, w_min, proj
         self.dyn_off = dyn_off   # #7 ablation: force m_dyn=0 (only static conditioning)
+        self.cond_mode = cond_mode   # issue-6: static|point|secant_mean|secant_full (fair SCM ablation)
         ih, iw = img_size
         self.gh, self.gw = ih // patch_size, iw // patch_size
 
@@ -124,7 +126,7 @@ class SCPGA(nn.Module):
         self.g = nn.ModuleList([nn.Linear(dim, dim) for _ in range(Kt)])     # dynamic mode adapters
         self.rmsna = RMSNormNA()
         self.M_static = nn.Sequential(nn.Linear(dim, dim), nn.GELU(), nn.Linear(dim, dim))
-        self.M_dyn = nn.Sequential(nn.Linear(3 * dim, dim), nn.GELU(), nn.Linear(dim, dim))
+        self.M_dyn = nn.Sequential(nn.Linear(2 * dim, dim, bias=False), nn.GELU(), nn.Linear(dim, dim, bias=False))
         self.time = nn.Sequential(nn.Linear(2 * dim, dim), nn.SiLU(), nn.Linear(dim, dim))
         self.leg = LegendreBasis(Kt)
         if proj != "v2":
@@ -179,19 +181,36 @@ class SCPGA(nn.Module):
             Pi = Pi[..., idx, :][..., :, idx]   # P^T Pi P : wrong chain topology, tokens unchanged
 
         A = [self._proj_apply(Pi, self.rmsna(self.g[k](Btok))) for k in range(self.Kt)]  # each (B,J,D)
-        dd = self.leg.potential_dd(r, t)                                     # (B,Kt) interval-avg
-        cbar = sum(dd[:, k].view(Bn, 1, 1) * A[k] for k in range(self.Kt))   # (B,J,D)
-        lt, lr = self.leg.eval(t), self.leg.eval(r)                          # (B,Kt)
-        Delta = (t - r).clamp_min(1e-3)
-        trend = sum(((1 - Delta) * (lt[:, k] - lr[:, k]) / Delta).view(Bn, 1, 1) * A[k] for k in range(self.Kt))
+        # interval-aligned dynamic condition; cond_mode = point vs secant (issue-6 fair ablation, same params)
+        zeros = torch.zeros_like(A[0])
+        cbar = trend = zeros
+        if self.cond_mode == "point":
+            lm = self.leg.eval((r + t) / 2)                                  # (B,Kt) midpoint single-point
+            cbar = sum(lm[:, k].view(Bn, 1, 1) * A[k] for k in range(self.Kt))
+            dyn_in = torch.cat([cbar, zeros], -1)
+        elif self.cond_mode in ("secant_mean", "secant_full"):
+            dd = self.leg.potential_dd(r, t)                                 # (B,Kt) secant mean cbar_{r,t}
+            cbar = sum(dd[:, k].view(Bn, 1, 1) * A[k] for k in range(self.Kt))
+            if self.cond_mode == "secant_full":
+                lt, lr = self.leg.eval(t), self.leg.eval(r)
+                Delta = (t - r).clamp_min(1e-3)
+                trend = sum(((1 - Delta) * (lt[:, k] - lr[:, k]) / Delta).view(Bn, 1, 1) * A[k] for k in range(self.Kt))
+            dyn_in = torch.cat([cbar, trend], -1)
+        else:                                                                # static: no dynamic branch
+            dyn_in = None
 
-        e = self.time(torch.cat([t_emb + r_emb, t_emb - r_emb], -1))         # (B,D)
+        e = self.time(torch.cat([t_emb + r_emb, t_emb - r_emb], -1))         # (B,D); time enters static+patch ONLY
         m_static = self.M_static(Btok + self.A0(Btok) + e[:, None, :])       # (B,J,D)
-        eb = e[:, None, :].expand(Bn, self.J, D)
-        m_dyn = self._proj_apply(Pi, self.M_dyn(torch.cat([cbar, trend, eb], -1)))  # projection-last: Pi . M_dyn(cbar,d,e)
-        m = m_static if self.dyn_off else (m_static + m_dyn)                 # (B,J,D); dyn_off=#7 ablation
+        if self.dyn_off or dyn_in is None:
+            m_dyn = torch.zeros_like(m_static)                               # full-span/static -> dynamic truly inert
+        else:
+            m_dyn = self._proj_apply(Pi, self.M_dyn(dyn_in))                 # projection-last; bias-free -> in@0 gives 0
+        m = m_static + m_dyn                                                 # (B,J,D)
         aux = {"m_dyn_rms": m_dyn.detach().pow(2).mean().sqrt(),
-               "m_static_rms": m_static.detach().pow(2).mean().sqrt()}  # #7 shortcut diagnostic
+               "m_static_rms": m_static.detach().pow(2).mean().sqrt(),
+               "A_rms": A[0].detach().pow(2).mean().sqrt(),
+               "cbar_rms": cbar.detach().pow(2).mean().sqrt(),
+               "trend_rms": trend.detach().pow(2).mean().sqrt()}
 
         # axial map J -> gh, broadcast over gw -> (B, gh*gw, D); + global time
         c_axial = F.interpolate(m.transpose(1, 2), size=self.gh, mode="linear", align_corners=True)  # (B,D,gh)

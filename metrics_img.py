@@ -25,3 +25,39 @@ def ssim(x, y, win=11, sigma=1.5, C1=0.01 ** 2, C2=0.03 ** 2):
 def psnr(x, y):
     mse = (x - y).pow(2).flatten(1).mean(1)
     return 10 * torch.log10(1.0 / mse.clamp_min(1e-10))     # (B,)
+
+
+# ---------- LPIPS (AlexNet) perceptual distance, lower=better ----------
+_LPIPS = None
+
+def lpips_fn(x, y):
+    """LPIPS-Alex perceptual distance per sample (lower better). x,y:(B,1,H,W) in [0,1].
+    Grayscale -> 3ch, [0,1] -> [-1,1]. AlexNet weights cached on shared home (offline-safe)."""
+    global _LPIPS
+    import lpips as _lp
+    if _LPIPS is None:
+        _LPIPS = _lp.LPIPS(net="alex", verbose=False).to(x.device).eval()
+        for p in _LPIPS.parameters():
+            p.requires_grad_(False)
+    def prep(t):
+        t = t.clamp(0, 1)
+        if t.shape[1] == 1:
+            t = t.repeat(1, 3, 1, 1)
+        return t * 2 - 1
+    with torch.no_grad():
+        return _LPIPS(prep(x), prep(y)).flatten()           # (B,)
+
+
+def lpips_loss(x, y):
+    """DIFFERENTIABLE LPIPS-Alex (for use as a training loss). x,y:(B,1,H,W) in [0,1]."""
+    global _LPIPS
+    import lpips as _lp
+    if _LPIPS is None:
+        _LPIPS = _lp.LPIPS(net="alex", verbose=False).to(x.device).eval()
+        for p in _LPIPS.parameters():
+            p.requires_grad_(False)
+    def prep(t):
+        if t.shape[1] == 1:
+            t = t.repeat(1, 3, 1, 1)
+        return t * 2 - 1
+    return _LPIPS(prep(x), prep(y)).mean()

@@ -15,12 +15,15 @@ from utils import cycle, count_parameters, load_config, log_to_file
 from dataset_sa import PairedSpineDataset
 from meanflow_sa import SourceAnchoredMeanFlow
 from models.sc_dit import SCDiT
+from models.discriminator import PatchGAN, d_hinge_loss, g_hinge_loss
+from metrics_img import lpips_loss
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/sc_pixel.yaml")
     ap.add_argument("--max_steps", type=int, default=None)
+    ap.add_argument("--resume", default=None)
     args = ap.parse_args()
     cfg = load_config(args.config)
     n_steps = args.max_steps or cfg["training"]["n_steps"]
@@ -50,7 +53,8 @@ def main():
                             J=cfg["model"].get("J", 12), Kg=cfg["model"].get("Kg", 4),
                             Kt=cfg["model"].get("Kt", 2), beta=cfg["model"].get("beta", 40.0),
                             eta=cfg["model"].get("eta", 4.0), proj=cfg["model"].get("proj", "v2"),
-                            dyn_off=cfg["model"].get("dyn_off", False))
+                            dyn_off=cfg["model"].get("dyn_off", False),
+                            cond_mode=cfg["model"].get("cond_mode", "secant_full"))
     model = SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"],
                   data_channels=cfg["data"]["data_channels"], cond_channels=cfg["data"]["cond_channels"],
                   dim=cfg["model"]["dim"], depth=cfg["model"]["depth"],
@@ -75,20 +79,57 @@ def main():
     for _p in ema.parameters():
         _p.requires_grad_(False)
     ema_decay = cfg["meanflow"].get("ema_decay", 0.999)
+    lambda_adv = cfg["training"].get("lambda_adv", 0.0)
+    lambda_perc = cfg["training"].get("lambda_perc", 0.0)
+    adv_roll_steps = cfg["training"].get("adv_roll_steps", 2)
+    disc = d_opt = None
+    if lambda_adv > 0:
+        disc = PatchGAN(in_ch=cfg["data"]["data_channels"] + cfg["data"]["cond_channels"], base=cfg["training"].get("disc_base", 64))
+        d_opt = torch.optim.AdamW(disc.parameters(), lr=float(cfg["training"].get("d_lr", cfg["training"]["lr"])), betas=(0.5, 0.9))
+        disc, d_opt = acc.prepare(disc, d_opt)
+        if acc.is_main_process:
+            print("[GAN] lambda_adv=%g lambda_perc=%g adv_roll_steps=%d" % (lambda_adv, lambda_perc, adv_roll_steps), flush=True)
     if acc.is_main_process:
         print(f"[model] {count_parameters(model)/1e6:.2f}M params; steps={n_steps}; "
               f"data={len(ds)} pairs {H}x{W}; lambda_st={mf.lambda_st} st_mode={mf.st_mode}")
 
+    start_step = 0
+    if args.resume:
+        _ck = torch.load(args.resume, map_location="cpu")
+        acc.unwrap_model(model).load_state_dict(_ck["model"])
+        ema.load_state_dict(_ck["ema"])
+        try:
+            opt.load_state_dict(_ck["optimizer"])
+        except Exception as _e:
+            print("[resume] opt state skipped:", _e)
+        start_step = int(_ck.get("step", 0))
+        if acc.is_main_process:
+            print("[resume] from %s at step %d" % (args.resume, start_step), flush=True)
     run, cnt = defaultdict(float), defaultdict(int)
-    pbar = tqdm(range(n_steps), dynamic_ncols=True, disable=not acc.is_local_main_process)
+    pbar = tqdm(range(start_step, n_steps), initial=start_step, total=n_steps, dynamic_ncols=True, disable=not acc.is_local_main_process)
     model.train()
     for step in pbar:
         x_pre, x_post = next(loader)
         loss, logs = mf.loss(model, x_pre, x_post, teacher=ema, step=step)  # wrapped model -> DDP syncs
+        pred_adv = None
+        if lambda_adv > 0 or lambda_perc > 0:
+            pred_adv = mf.rollout_pred(model, x_pre, steps=adv_roll_steps)
+            if lambda_perc > 0:
+                l_perc = lpips_loss(pred_adv.clamp(0, 1), x_post)
+                loss = loss + lambda_perc * l_perc; logs["l_perc"] = l_perc.detach()
+            if lambda_adv > 0:
+                g_adv = g_hinge_loss(disc(x_pre, pred_adv))
+                loss = loss + lambda_adv * g_adv; logs["g_adv"] = g_adv.detach()
         opt.zero_grad(); acc.backward(loss); opt.step()
         with torch.no_grad():
             for pe, pm in zip(ema.parameters(), acc.unwrap_model(model).parameters()):
                 pe.mul_(ema_decay).add_(pm.detach(), alpha=1 - ema_decay)
+        if lambda_adv > 0:
+            d_real = disc(x_pre, x_post)
+            d_fake = disc(x_pre, pred_adv.detach())
+            d_loss = d_hinge_loss(d_real, d_fake)
+            d_opt.zero_grad(); acc.backward(d_loss); d_opt.step()
+            logs["d_loss"] = d_loss.detach()
         for k, v in logs.items():
             run[k] += v.item(); cnt[k] += 1
         gs = step + 1
@@ -111,7 +152,8 @@ def main():
             model.train()
         if acc.is_main_process and gs % cfg["training"]["save_step"] == 0:
             ckpt = {"model": acc.unwrap_model(model).state_dict(), "ema": ema.state_dict(),
-                    "optimizer": opt.state_dict(), "step": gs, "config": cfg, "seed": seed}
+                    "optimizer": opt.state_dict(), "step": gs, "config": cfg, "seed": seed,
+                    "disc": (acc.unwrap_model(disc).state_dict() if disc is not None else None)}
             torch.save(ckpt, os.path.join(cfg["project"]["checkpoint_path"], f"step_{gs}.pt"))
 
 
