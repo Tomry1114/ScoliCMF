@@ -2,6 +2,21 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-27 — 第 50 轮：深度 code review → 修复 5 个根因 + 修正消融重训
+
+- **改动(用户 code review 找出,逐条修)**：
+  - **P0 共享噪声 bug**：`_l_comp_roll` 给 z_t/z_r 各采独立 eps(sigma_m=0.1)→ rollout 追踪另一条随机桥,监督冲突。修：同一 eps。**s4_comp 及后续必须重训。**
+  - **issue-3 时间 embedding 旁路**：动态分支 `M_dyn(cat[cbar,trend,e])` 含时间 e → full-span(cbar=trend=0)m_dyn 仍非零 = 脊柱投影的时间 MLP,非患者割线。修：M_dyn 无 bias、输入仅 [cbar,trend];e 只进 m_static+c_patch。验证 secant full-span m_dyn_rms==0。
+  - **issue-6 SCM 不公平消融**：s4_comp(base 全局池化) vs identity(scpga 逐patch) 同时改了架构。修：同一 SCPGA 骨架加 `cond_mode={static,point,secant_mean,secant_full}`,只切 point↔secant。
+  - **issue-5 v2 图退化**：beta=40 锁 token → 残差极小 → exp(-d/tau=1)≈1 → v2≈固定 path graph(实测 ||Pi_v2-Pi_v1||/||Pi_v1||=0.0003)。修：per-sample 中位数尺度 → 0.0003→0.1539(真患者特异)。
+  - **issue-4/7/8**：lambda_time=0(L_time 对 Identity≈常数、对低秩有钻零空间捷径,不公平);SHMM 改同秩 dct/v1/v2(非 Identity 全秩);SSIM 改 reflect padding;LPIPS/eval_ablation 入库(本次新加,预处理 gray→3ch+[0,1]→[-1,1])。
+  - GAN(discriminator+lambda_adv/perc)加了但**休眠**(默认0,推理纯 MeanFlow)——真问题是上述 bug,不是缺对抗。
+- **文件**：meanflow_sa.py / sc_pga.py / metrics_img.py / train_sa.py / tools/gen_configs.py / models/discriminator.py / eval_ablation.py;commits d948663, ce0b042。
+- **结论修正**：之前"病态均值回归天花板/要上 GAN"的判断**撤回** —— Bridge+composition 基本 work,平表主因是上述 SCM/SHMM 实现 bug + 噪声 bug + 不公平消融。
+- **修正后实验表(9 config,patch8/batch4/5000/lambda_time=0)**：composition 阶梯 s2/s3/s4 + SCM(identity×{static,point,secant}) + SHMM(secant_full×{dct,v1,v2})。s2_base/s3_st 不受影响复用旧 ckpt;重训 7 个(job 9918875)。
+- **评测口径修正**：SCM/SHMM 主要在 2/4-NFE 比(1-NFE 下 secant 结构性为零,只能验 Bridge+静态条件)。
+
+
 ## 2026-06-26 — 第 49 轮：原始 ScoliCMF vs 创新版 对照（创新点验证）
 
 - **改动**：① 停掉过拟合的 leak-fix 长训练(job 9912392，s5b val 在 step4k 见顶后单调下滑)；② 忠实复刻原始 ScoliCMF(`/share/ScoliCMF-main` = BraTS conditional MeanFlow，noise→image + FGA)为匹配 harness baseline；③ 同数据/同 split/同 480×240/同 regime(wd0.02/aug/EMA0.999/batch8/lr1e-4)/同 metrics_img，只留"方法"一个变量；④ 训练 16k 步并扫全 ckpt 找各自 best-val。
