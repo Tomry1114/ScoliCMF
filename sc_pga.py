@@ -80,7 +80,9 @@ def build_v2_projector(res_means, sqrt_vars, Kg, tau=1.0, w_min=0.1, lam_sigma=0
     for b in range(B):
         dm = ((res_means[b, 1:] - res_means[b, :-1]) ** 2).sum(-1)            # (J-1,)
         db = ((sqrt_vars[b, 1:] - sqrt_vars[b, :-1]) ** 2).sum(-1)            # Bures (diag)
-        w = w_min + (1 - w_min) * torch.exp(-(dm + lam_sigma * db) / tau)     # (J-1,) in (w_min,1]
+        cost = dm + lam_sigma * db                                           # (J-1,)
+        scale = (tau * cost.median()).clamp_min(1e-4)                        # issue-5: per-sample median scale (not fixed tau) -> weights actually spread
+        w = w_min + (1 - w_min) * torch.exp(-cost / scale)                   # (J-1,) in (w_min,1]
         U = _topk_eigvecs(path_laplacian(J, w, device=res_means.device), Kg, low=True)
         out.append(U @ U.T)
     return torch.stack(out, 0)

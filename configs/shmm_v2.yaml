@@ -1,8 +1,8 @@
-# s3_st: cond=base proj=None cond_mode=static | ST=0.05 comp=0.0 roll=0.0 time=0.0
+# shmm_v2: cond=scpga proj=v2 cond_mode=secant_full | ST=0.05 comp=0.1 roll=0.1 time=0.0
 project:
-  image_save_path: runs/s3_st/images
-  checkpoint_path: runs/s3_st/ckpts
-  log_file: runs/s3_st/log.txt
+  image_save_path: runs/shmm_v2/images
+  checkpoint_path: runs/shmm_v2/ckpts
+  log_file: runs/shmm_v2/log.txt
 data:
   root: data/Spine生成_Miccai数据集
   split: train
@@ -20,7 +20,7 @@ model:
   depth: 8
   num_heads: 8
   mlp_ratio: 4.0
-  cond: base
+  cond: scpga
   proj: v2
   J: 12
   Kg: 4
@@ -30,7 +30,7 @@ model:
   decode_head: conv
   xpre_mode: blur
   dyn_off: false
-  cond_mode: static
+  cond_mode: secant_full
 meanflow:
   gamma: 2.0
   sigma_m: 0.1
@@ -41,8 +41,8 @@ meanflow:
   lambda_st: 0.05
   st_mode: detach
   jvp_api: autograd
-  lambda_comp: 0.0
-  lambda_roll: 0.0
+  lambda_comp: 0.1
+  lambda_roll: 0.1
   comp_ramp_steps: 2000
   ema_decay: 0.999
   lambda_time: 0.0
@@ -57,4 +57,4 @@ training:
   sample_step: 500
   save_step: 500
   sample_steps: 4
-experiment: s3_st
+experiment: shmm_v2

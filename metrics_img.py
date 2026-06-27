@@ -13,11 +13,13 @@ def _gauss_window(win, sigma, device):
 def ssim(x, y, win=11, sigma=1.5, C1=0.01 ** 2, C2=0.03 ** 2):
     w = _gauss_window(win, sigma, x.device)
     p = win // 2
-    mu_x = F.conv2d(x, w, padding=p); mu_y = F.conv2d(y, w, padding=p)
+    def _c(t):                                          # reflect-pad conv (issue-8: avoid zero-pad edge bias)
+        return F.conv2d(F.pad(t, [p, p, p, p], mode="reflect"), w)
+    mu_x = _c(x); mu_y = _c(y)
     mx2, my2, mxy = mu_x ** 2, mu_y ** 2, mu_x * mu_y
-    sx = F.conv2d(x * x, w, padding=p) - mx2
-    sy = F.conv2d(y * y, w, padding=p) - my2
-    sxy = F.conv2d(x * y, w, padding=p) - mxy
+    sx = _c(x * x) - mx2
+    sy = _c(y * y) - my2
+    sxy = _c(x * y) - mxy
     smap = ((2 * mxy + C1) * (2 * sxy + C2)) / ((mx2 + my2 + C1) * (sx + sy + C2))
     return smap.flatten(1).mean(1)                          # (B,)
 
