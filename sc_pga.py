@@ -110,11 +110,12 @@ class ConvStem(nn.Module):
 class SCPGA(nn.Module):
     """Returns per-patch conditioning (B, gh*gw, D); stashes last_l_time. Base PGA = proj 'identity'."""
     def __init__(self, img_size, dim, patch_size, J=12, Kg=4, Kt=2,
-                 beta=40.0, eta=4.0, tau=1.0, w_min=0.1, proj="v2", dyn_off=False,
+                 beta=40.0, eta=4.0, tau=1.0, w_min=0.1, lam_sigma=0.5, proj="v2", dyn_off=False,
                  cond_mode="secant_full"):
         super().__init__()
         self.dim, self.J, self.Kg, self.Kt = dim, J, Kg, Kt
         self.beta, self.eta, self.tau, self.w_min, self.proj = beta, eta, tau, w_min, proj
+        self.lam_sigma = lam_sigma
         self.dyn_off = dyn_off   # #7 ablation: force m_dyn=0 (only static conditioning)
         self.cond_mode = cond_mode   # issue-6: static|point|secant_mean|secant_full (fair SCM ablation)
         ih, iw = img_size
@@ -175,14 +176,14 @@ class SCPGA(nn.Module):
         res = torch.stack([pos[..., 0] - self.mu[None, :], pos[..., 1] - 0.5], -1)   # residual (y-mu, x-0.5)
 
         if self.proj == "v2":
-            Pi = build_v2_projector(res, var.sqrt(), self.Kg, self.tau, self.w_min)  # (B,J,J) detached
+            Pi = build_v2_projector(res, var.sqrt(), self.Kg, self.tau, self.w_min, self.lam_sigma)  # (B,J,J) detached
         else:
             Pi = self.Pi_static
         if self.perm is not None:
             idx = self.perm.to(Pi.device)
             Pi = Pi[..., idx, :][..., :, idx]   # P^T Pi P : wrong chain topology, tokens unchanged
 
-        A = [self._proj_apply(Pi, self.rmsna(self.g[k](Btok))) for k in range(self.Kt)]  # each (B,J,D)
+        A = [self.rmsna(self.g[k](Btok)) for k in range(self.Kt)]            # full-rank modes; projection happens ONCE at end (projection-last)
         # interval-aligned dynamic condition; cond_mode = point vs secant (issue-6 fair ablation, same params)
         zeros = torch.zeros_like(A[0])
         cbar = trend = zeros
@@ -204,19 +205,32 @@ class SCPGA(nn.Module):
         e = self.time(torch.cat([t_emb + r_emb, t_emb - r_emb], -1))         # (B,D); time enters static+patch ONLY
         m_static = self.M_static(Btok + self.A0(Btok) + e[:, None, :])       # (B,J,D)
         if self.dyn_off or dyn_in is None:
+            raw_dyn = None
             m_dyn = torch.zeros_like(m_static)                               # full-span/static -> dynamic truly inert
         else:
-            m_dyn = self._proj_apply(Pi, self.M_dyn(dyn_in))                 # projection-last; bias-free -> in@0 gives 0
+            raw_dyn = self.M_dyn(dyn_in)                                     # (B,J,D) BEFORE projection
+            m_dyn = self._proj_apply(Pi, raw_dyn)                            # projection-last; bias-free -> in@0 gives 0
         m = m_static + m_dyn                                                 # (B,J,D)
         aux = {"m_dyn_rms": m_dyn.detach().pow(2).mean().sqrt(),
                "m_static_rms": m_static.detach().pow(2).mean().sqrt(),
                "A_rms": A[0].detach().pow(2).mean().sqrt(),
                "cbar_rms": cbar.detach().pow(2).mean().sqrt(),
                "trend_rms": trend.detach().pow(2).mean().sqrt()}
+        if raw_dyn is not None:                                             # R_removed: how much projection strips from dynamic feat
+            _rd = raw_dyn.detach()
+            aux["R_removed"] = (_rd - m_dyn.detach()).norm() / _rd.norm().clamp_min(1e-6)
+        if getattr(self, "diag", False):                                   # diagnostic stash (off in training)
+            self._diag = {"raw_dyn": raw_dyn, "Pi": Pi, "pi": pi, "m_dyn": m_dyn.detach(), "m_static": m_static.detach()}
 
-        # axial map J -> gh, broadcast over gw -> (B, gh*gw, D); + global time
-        c_axial = F.interpolate(m.transpose(1, 2), size=self.gh, mode="linear", align_corners=True)  # (B,D,gh)
-        c_patch = c_axial.transpose(1, 2)[:, :, None, :].expand(Bn, self.gh, self.gw, D).reshape(Bn, self.gh * self.gw, D)
+        # 2D BACK-PROJECTION (priority-1 fix): scatter modulated spinal tokens to the patient s real
+        # spine region via token attention pi (B,J,N), N=Hf*Wf -- NOT row-broadcast. Preserves lateral
+        # (left/right) spine geometry instead of collapsing it into channels.
+        bw = pi.transpose(1, 2)                                              # (B,N,J)
+        bw = bw / (bw.sum(dim=-1, keepdim=True) + 1e-6)
+        c_grid = torch.einsum("bnj,bjd->bnd", bw, m)                         # (B,N,D)
+        c_grid = c_grid.transpose(1, 2).reshape(Bn, D, Hf, Wf)               # (B,D,Hf,Wf)
+        c_grid = F.interpolate(c_grid, size=(self.gh, self.gw), mode="bilinear", align_corners=False)
+        c_patch = c_grid.flatten(2).transpose(1, 2)                          # (B, gh*gw, D)
         c_patch = c_patch + e[:, None, :]
 
         # temporal Sobolev L_time = sum_kl R_kl <A_k,A_l>

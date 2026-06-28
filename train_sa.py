@@ -53,6 +53,7 @@ def main():
                             J=cfg["model"].get("J", 12), Kg=cfg["model"].get("Kg", 4),
                             Kt=cfg["model"].get("Kt", 2), beta=cfg["model"].get("beta", 40.0),
                             eta=cfg["model"].get("eta", 4.0), proj=cfg["model"].get("proj", "v2"),
+                            tau=cfg["model"].get("tau", 1.0), w_min=cfg["model"].get("w_min", 0.1), lam_sigma=cfg["model"].get("lam_sigma", 0.5),
                             dyn_off=cfg["model"].get("dyn_off", False),
                             cond_mode=cfg["model"].get("cond_mode", "secant_full"))
     model = SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"],
