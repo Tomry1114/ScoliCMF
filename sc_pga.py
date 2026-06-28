@@ -174,6 +174,12 @@ class SCPGA(nn.Module):
         pos = torch.einsum("bjn,nc->bjc", pi, grid)                          # (B,J,2) mean (y,x)
         var = (torch.einsum("bjn,nc->bjc", pi, grid ** 2) - pos ** 2).clamp_min(0)
         res = torch.stack([pos[..., 0] - self.mu[None, :], pos[..., 1] - 0.5], -1)   # residual (y-mu, x-0.5)
+        # token-diversity loss (combat collapse: tokens must cover distinct regions & decorrelated features)
+        _eye = torch.eye(self.J, device=Btok.device)[None]
+        _bn = F.normalize(Btok, dim=-1)
+        _feat_off = (torch.einsum("bid,bjd->bij", _bn, _bn) - _eye).abs().sum((1, 2)) / (self.J * (self.J - 1))
+        _pi_off = (torch.einsum("bin,bjn->bij", pi, pi) * (1 - _eye)).sum((1, 2)) / (self.J * (self.J - 1))
+        l_tokdiv = (_feat_off + _pi_off).mean()
 
         if self.proj == "v2":
             Pi = build_v2_projector(res, var.sqrt(), self.Kg, self.tau, self.w_min, self.lam_sigma)  # (B,J,J) detached
@@ -219,15 +225,25 @@ class SCPGA(nn.Module):
         if raw_dyn is not None:                                             # R_removed: how much projection strips from dynamic feat
             _rd = raw_dyn.detach()
             aux["R_removed"] = (_rd - m_dyn.detach()).norm() / _rd.norm().clamp_min(1e-6)
+        with torch.no_grad():                                              # P1 token-collapse diagnostics
+            bn = F.normalize(Btok.detach(), dim=-1)
+            cosm = torch.einsum("bid,bjd->bij", bn, bn) - torch.eye(self.J, device=bn.device)[None]
+            aux["tok_cos"] = cosm.abs().sum((1, 2)).mean() / (self.J * (self.J - 1))
+            if raw_dyn is not None:
+                ev = torch.linalg.svdvals(raw_dyn.detach()).pow(2)          # (B, min(J,D))
+                aux["E_top4"] = (ev[:, :4].sum(1) / ev.sum(1).clamp_min(1e-9)).mean()
+        aux["l_tokdiv"] = l_tokdiv
         if getattr(self, "diag", False):                                   # diagnostic stash (off in training)
             self._diag = {"raw_dyn": raw_dyn, "Pi": Pi, "pi": pi, "m_dyn": m_dyn.detach(), "m_static": m_static.detach()}
 
         # 2D BACK-PROJECTION (priority-1 fix): scatter modulated spinal tokens to the patient s real
         # spine region via token attention pi (B,J,N), N=Hf*Wf -- NOT row-broadcast. Preserves lateral
         # (left/right) spine geometry instead of collapsing it into channels.
+        # spatial-mass gate (P0-2): pi sums to 1 over N per token, so each pixel carries the token mass
+        # it actually receives. DO NOT renormalize over J (that gives background a full-amplitude mix).
+        # *N/J restores the mean modulation amplitude to ~1 while keeping spine>>background support.
         bw = pi.transpose(1, 2)                                              # (B,N,J)
-        bw = bw / (bw.sum(dim=-1, keepdim=True) + 1e-6)
-        c_grid = torch.einsum("bnj,bjd->bnd", bw, m)                         # (B,N,D)
+        c_grid = torch.einsum("bnj,bjd->bnd", bw, m) * (bw.shape[1] / self.J)  # (B,N,D) mass-preserving
         c_grid = c_grid.transpose(1, 2).reshape(Bn, D, Hf, Wf)               # (B,D,Hf,Wf)
         c_grid = F.interpolate(c_grid, size=(self.gh, self.gw), mode="bilinear", align_corners=False)
         c_patch = c_grid.flatten(2).transpose(1, 2)                          # (B, gh*gw, D)
@@ -238,3 +254,18 @@ class SCPGA(nn.Module):
         lt_val = sum(R[k, l] * (A[k] * A[l]).mean() for k in range(self.Kt) for l in range(self.Kt))
         aux["l_time"] = lt_val
         return c_patch, aux
+
+
+def build_scpga(cfg, H, W, proj_override=None):
+    """SINGLE source of truth for SCPGA construction -- train/eval/diag MUST all use this so
+    cond_mode/tau/w_min/lam_sigma never silently diverge (cond_mode is NOT in state_dict)."""
+    mc = cfg["model"]
+    return SCPGA(
+        img_size=(H, W), dim=mc["dim"], patch_size=mc["patch_size"],
+        J=mc.get("J", 12), Kg=mc.get("Kg", 4), Kt=mc.get("Kt", 2),
+        beta=mc.get("beta", 40.0), eta=mc.get("eta", 4.0),
+        tau=mc.get("tau", 1.0), w_min=mc.get("w_min", 0.1), lam_sigma=mc.get("lam_sigma", 0.5),
+        proj=proj_override or mc.get("proj", "v2"),
+        dyn_off=mc.get("dyn_off", False),
+        cond_mode=mc.get("cond_mode", "secant_full"),
+    )

@@ -20,7 +20,7 @@ class SourceAnchoredMeanFlow:
     def __init__(self, gamma=2.0, sigma_m=0.0, lambda_end=1.0, rho_end=0.25,
                  lambda_st=0.0, st_mode="detach", jvp_api="autograd",
                  lambda_comp=0.0, lambda_roll=0.0, comp_ramp_steps=2000, lambda_time=0.0,
-                 lambda_end_roll=0.0, end_roll_steps=2):
+                 lambda_end_roll=0.0, end_roll_steps=2, lambda_tokdiv=0.0):
         self.path = SourceAnchoredPath(gamma, sigma_m)
         self.sigma_m = sigma_m
         self.lambda_end, self.rho_end = lambda_end, rho_end
@@ -29,6 +29,7 @@ class SourceAnchoredMeanFlow:
         self.comp_ramp_steps = comp_ramp_steps
         self.lambda_time = lambda_time
         self.lambda_end_roll, self.end_roll_steps = lambda_end_roll, end_roll_steps
+        self.lambda_tokdiv = lambda_tokdiv
 
     def T(self, model, z, r, t, x_pre):
         return z - _v4(t - r) * model(z, r, t, x_pre)
@@ -87,6 +88,11 @@ class SourceAnchoredMeanFlow:
         if self.lambda_time > 0 and torch.is_tensor(aux.get("l_time")) and aux["l_time"].requires_grad:
             loss = loss + self.lambda_time * aux["l_time"]
             logs["l_time"] = aux["l_time"].detach()
+        if self.lambda_tokdiv > 0 and torch.is_tensor(aux.get("l_tokdiv")) and aux["l_tokdiv"].requires_grad:
+            loss = loss + self.lambda_tokdiv * aux["l_tokdiv"]
+            logs["l_tokdiv"] = aux["l_tokdiv"].detach()
+        if torch.is_tensor(aux.get("tok_cos")):
+            logs["tok_cos"] = aux["tok_cos"]; logs["E_top4"] = aux["E_top4"]
         if torch.rand(()).item() < self.rho_end:
             z0 = self.T(model, x_pre, torch.zeros(B, device=device), torch.ones(B, device=device), x_pre)
             l_end = (z0 - x_post).abs().mean()

@@ -46,6 +46,7 @@ meanflow:
   comp_ramp_steps: 2000
   ema_decay: 0.999
   lambda_time: 0.0
+  lambda_tokdiv: 0.0
 training:
   n_steps: 5000
   batch_size: 4

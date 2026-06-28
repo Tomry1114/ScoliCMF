@@ -41,6 +41,7 @@ def main():
         if proj is not None:
             c["model"]["proj"] = proj
         c["meanflow"].update(lambda_st=st, lambda_comp=comp, lambda_roll=roll, lambda_time=tm)
+        c["meanflow"]["lambda_tokdiv"] = 0.1 if cond == "scpga" else 0.0
         c["project"]["image_save_path"] = f"runs/{name}/images"
         c["project"]["checkpoint_path"] = f"runs/{name}/ckpts"
         c["project"]["log_file"] = f"runs/{name}/log.txt"

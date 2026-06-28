@@ -48,14 +48,8 @@ def main():
 
     cond_module = None
     if cfg["model"].get("cond", "base") == "scpga":
-        from sc_pga import SCPGA
-        cond_module = SCPGA(img_size=(H, W), dim=cfg["model"]["dim"], patch_size=cfg["model"]["patch_size"],
-                            J=cfg["model"].get("J", 12), Kg=cfg["model"].get("Kg", 4),
-                            Kt=cfg["model"].get("Kt", 2), beta=cfg["model"].get("beta", 40.0),
-                            eta=cfg["model"].get("eta", 4.0), proj=cfg["model"].get("proj", "v2"),
-                            tau=cfg["model"].get("tau", 1.0), w_min=cfg["model"].get("w_min", 0.1), lam_sigma=cfg["model"].get("lam_sigma", 0.5),
-                            dyn_off=cfg["model"].get("dyn_off", False),
-                            cond_mode=cfg["model"].get("cond_mode", "secant_full"))
+        from sc_pga import SCPGA, build_scpga
+        cond_module = build_scpga(cfg, H, W)
     model = SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"],
                   data_channels=cfg["data"]["data_channels"], cond_channels=cfg["data"]["cond_channels"],
                   dim=cfg["model"]["dim"], depth=cfg["model"]["depth"],
@@ -74,6 +68,7 @@ def main():
                                 comp_ramp_steps=cfg["meanflow"].get("comp_ramp_steps", 2000),
                                 lambda_time=cfg["meanflow"].get("lambda_time", 0.0),
                                 lambda_end_roll=cfg["meanflow"].get("lambda_end_roll", 0.0),
+                                lambda_tokdiv=cfg["meanflow"].get("lambda_tokdiv", 0.0),
                                 end_roll_steps=cfg["meanflow"].get("end_roll_steps", 2))
     model, opt = acc.prepare(model, opt)
     ema = copy.deepcopy(acc.unwrap_model(model)).to(device).eval()

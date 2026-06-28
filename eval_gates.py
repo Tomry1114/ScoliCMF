@@ -23,17 +23,13 @@ from utils import load_config
 from dataset_sa import PairedSpineDataset
 from meanflow_sa import SourceAnchoredMeanFlow
 from models.sc_dit import SCDiT
-from sc_pga import SCPGA
+from sc_pga import SCPGA, build_scpga
 
 
 def build_model(cfg, H, W, proj=None):
     cond = None
     if cfg["model"].get("cond", "base") == "scpga":
-        cond = SCPGA(img_size=(H, W), dim=cfg["model"]["dim"], patch_size=cfg["model"]["patch_size"],
-                     J=cfg["model"].get("J", 12), Kg=cfg["model"].get("Kg", 4), Kt=cfg["model"].get("Kt", 2),
-                     beta=cfg["model"].get("beta", 40.0), eta=cfg["model"].get("eta", 4.0),
-                     proj=proj or cfg["model"].get("proj", "v2"),
-                     dyn_off=cfg["model"].get("dyn_off", False))
+        cond = build_scpga(cfg, H, W, proj_override=proj)
     return SCDiT(img_size=(H, W), patch_size=cfg["model"]["patch_size"], data_channels=1, cond_channels=1,
                  dim=cfg["model"]["dim"], depth=cfg["model"]["depth"], num_heads=cfg["model"]["num_heads"],
                  mlp_ratio=cfg["model"]["mlp_ratio"], cond_module=cond,
