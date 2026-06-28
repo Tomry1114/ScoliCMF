@@ -2,6 +2,20 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-28 — 第 51 轮：修正后消融表完成（干净单因子，val 4-NFE）
+
+- **改动**：用修复后代码(P0/issue3/5/6 + lambda_time=0 + 同秩 SHMM)重训 7 变体并评测,出修正消融表。
+- **结果(val SSIM4 / PSNR4 / LPIPS4,best-val=step5000,reflect-pad SSIM)**：
+  - Bridge+组合：s2_base 0.249/13.55/0.509 → s3_st 0.246(L_ST 中性) → **s4_comp 0.258/13.83/0.478(组合 ✅,P0修后)**。
+  - SCM(同 SCPGA 骨架,Π=I,只切 cond_mode)：static 0.229 / point 0.205/13.00/**0.417** / **secant 0.253/13.93/0.458**。
+    → **SCM 割线 ✅**:secant vs point **SSIM4 +23% / PSNR4 +0.93dB**;secant>static。单点 LPIPS 最优=fidelity↔perceptual 权衡。
+  - SHMM(同 rank-4,secant_full)：dct 0.253 / v1 0.254 / **v2 0.255**,LPIPS4 0.458/0.461/0.467。
+    → **SHMM 患者特异 ✗ 阴性**:v2≈v1≈dct 噪声内,即便去退化(‖Pi_v2-Pi_v1‖0.15)也无增益,脊柱限制中性。
+- **结论**:两个确认贡献(Composition、SCM-secant),一个诚实阴性(SHMM)。SCM-secant 是最强干净正面证据。
+- **遗留/建议**:① 单 seed n=54,headline(SCM secant vs point)需多 seed 固化 CI;② SHMM 要么报为诚实阴性、要么重新设计(当前患者特异图机制无效);③ s2/s3 复用旧 ckpt 已用新 SSIM 重评对齐。
+- **产物**：runs/{s4_comp,scm_*,shmm_*};runs/eval2_{s4,scm,shmm,base}.out。
+
+
 ## 2026-06-27 — 第 50 轮：深度 code review → 修复 5 个根因 + 修正消融重训
 
 - **改动(用户 code review 找出,逐条修)**：
