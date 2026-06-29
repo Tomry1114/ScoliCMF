@@ -2,6 +2,27 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 63 轮：APTD 实现 + 四模式消融 —— 分解结构成立(LPIPS 赢),SSIM/PSNR 暂未超 Bridge
+
+- **实现**:aptd_model.py(WarpResidualHead 四模式 direct/residual/warp/warpres + APTDNet 复用 SCDiT backbone,x0 端点参数化,零初始化→起步=术前)+ train_aptd.py(span 损失化简为 α 加权端点 + L_end + L_smooth(φ) + L_res(R);1/4-NFE 评估;augment 已开)。
+- **消融(val n=54,各从零训 1200 步,EMA,best=step1200)**:
+  | mode | 1NFE SSIM | PSNR | LPIPS | 4NFE SSIM | LPIPS |
+  |---|---|---|---|---|---|
+  | direct(自由残差,无结构) | 0.2097 | 12.53 | 0.4277 | 0.2069 | 0.4258 |
+  | residual(术前+R,无 warp) | 0.2044 | 12.51 | 0.4307 | 0.2019 | 0.4281 |
+  | warp(仅形变,无 R) | 0.2071 | 11.88 | **0.4939** | 0.2054 | 0.4930 |
+  | **warpres(完整 APTD)** | **0.2208** | **12.60** | **0.4222** | 0.2163 | 0.4222 |
+  - 参照 Bridge(s2_base,5000步,velocity/4NFE):SSIM 0.249 / LPIPS 0.509。
+- **消融结论(单因子,内部受控)**:
+  - **warpres 三项(SSIM/PSNR/LPIPS)全模式最好** → APTD 分解结构成立。
+  - **R_new 残差头关键**:warp-only LPIPS 0.494(差,接近 Bridge)→ 加 R 后 0.422(大改善)。warp 单独有形变伪影且无法画钉棒/新内容。
+  - **warp 头有贡献**:warpres(0.2208/0.4222)> residual 无 warp(0.2044/0.4307)。
+  - 两成分互补,缺一不可。(SSIM 边际小,n=54 噪声内,需 bootstrap;LPIPS 差异稳健。)
+- **vs Bridge(诚实)**:APTD **LPIPS 大幅赢**(0.422 vs 0.509,~17%),但 **SSIM/PSNR 暂未超**(0.221 vs 0.249 / 12.6 vs 14.0)。= 经典 perceptual–distortion 权衡,且被 identifiability 放大(锐利但几何略偏,SSIM/PSNR 罚得比模糊重)。
+- **confound**:APTD 仅训 1200 步 vs Bridge 5000 步(欠训);x0/1-NFE vs velocity/4-NFE(参数化不同);flow_scale=0.3 可能偏大伤 SSIM。SSIM 差距可能随更长训练/调 flow_scale/lambda_smooth 收窄。
+- **下一步**:warpres 训到 5000 步(对齐 Bridge)+ 调 flow_scale/lambda_smooth + bootstrap CI,看 SSIM 能否追平/超越;若 SSIM 仍不过,论文按"LPIPS/感知质量 + 诚实权衡"叙事 + PMOS 副模块。
+- **产物**:aptd_model.py / train_aptd.py;runs/aptd_{direct,residual,warp,warpres}。
+
 ## 2026-06-30 — 第 62 轮：APTD/PMOS 双前置门均通过(APTD 强,PMOS 中)—— 含端点级证据
 
 > 用户重构:APTD=Anatomy-Preserving Transport Decomposition(F_post=W(F_pre,φ)+R_new,运输分解,非 attention 创新);PMOS=Plan-Marginalized Outcome Set(不可辨识手术方案显式边缘化成 K 个经验原型的集合预测,非普通 SIL)。两个廉价门 gate_aptd_pmos.py(无模块训练)。

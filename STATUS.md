@@ -135,3 +135,10 @@
 - gate_aptd_pmos.py(无训练):PMOS 残差 oracle best-of-K EV K4=0.21/K8=0.28(random −0.35)=离散模态但 headroom 中;APTD oracle-warp 解释 82% 变化(残差 18%、62% 高频)。
 - 关键:LPIPS no-op 术前 0.428 < Bridge 0.509,oracle-warp 0.400 → Bridge 模糊比术前还差,APTD 攻这个、有端点级 headroom。
 - 判读:APTD 强 GREEN(主推质量),PMOS 中 GREEN(副,诚实一对多)。下一步:实现 APTD 双分支(φ+R_new)。
+
+## 更新 2026-06-30 R63 — APTD 实现 + 四模式消融(分解成立,LPIPS 赢,SSIM 暂未超 Bridge)
+- aptd_model.py + train_aptd.py(x0 端点参数化,warp+残差分解,零初始化起步=术前)。
+- 消融(val,各从零1200步,1NFE):direct 0.2097/0.4277,residual 0.2044/0.4307,warp 0.2071/**0.4939**,**warpres 0.2208/0.4222**。Bridge 参照 0.249/0.509。
+- 结论:**warpres 三项全模式最好**(分解成立);R_new 关键(warp-only LPIPS 差 0.494→加 R 0.422);warp 头有贡献(vs residual)。
+- vs Bridge:**LPIPS 大幅赢**(0.422 vs 0.509),**SSIM/PSNR 暂未超**(0.221 vs 0.249)= perceptual–distortion 权衡,被 identifiability 放大。confound:APTD 仅 1200 步 vs Bridge 5000、x0/1NFE vs velocity/4NFE、flow_scale 可能偏大。
+- 下一步:warpres 训 5000 步+调 flow_scale/smooth+bootstrap,看 SSIM 能否追平;否则按 LPIPS+诚实权衡叙事+PMOS 副模块。

@@ -1,13 +1,21 @@
-docs(R62): APTD and PMOS pre-gates both pass (APTD strong, endpoint-level signal)
+feat(R63): APTD implemented + 4-mode ablation -- decomposition validated (LPIPS win), SSIM not yet beating Bridge
 
-gate_aptd_pmos.py (no module training).
-PMOS gate residual clusterability oracle best-of-K: K=4 EV=0.21, K=8 EV=0.28 vs
-random-assign EV=-0.35 -> real discrete modes but MODERATE headroom. PASS moderate.
-APTD gate oracle per-pair dense warp: warp explains 82 pct of the change residual
-fraction 0.18 of which 62 pct high-freq. LPIPS no-op x_pre 0.428, Bridge 0.509,
-oracle-warp 0.400 -> Bridge blur is perceptually WORSE than the unchanged pre-op;
-warp-carry of sharp content has clear room. PASS strong.
+aptd_model.py (WarpResidualHead modes direct/residual/warp/warpres + APTDNet reusing
+SCDiT backbone, x0 endpoint param, zero-init -> starts at pre-op) + train_aptd.py
+(span loss reduces to alpha-weighted endpoint + L_end + L_smooth(flow) + L_res(R); 1/4-NFE eval).
 
-Read: APTD strong GREEN endpoint-level image LPIPS evidence; PMOS moderate GREEN for
-the honest set-valued component. First endpoint-level positive signal after the null chain.
-Next: implement APTD dual-branch warp head phi plus residual head R_new.
+Ablation (val n=54, each from scratch 1200 steps, 1NFE):
+  direct   SSIM 0.2097 LPIPS 0.4277
+  residual SSIM 0.2044 LPIPS 0.4307
+  warp     SSIM 0.2071 LPIPS 0.4939   (warp-only perceptually bad)
+  warpres  SSIM 0.2208 LPIPS 0.4222   (FULL APTD: best on SSIM/PSNR/LPIPS)
+Bridge ref (s2_base 5000 steps): SSIM 0.249 / LPIPS 0.509.
+
+Findings: warpres best on all 3 internal metrics -> decomposition validated. R_new head is
+critical (warp-only LPIPS 0.494 -> 0.422 with residual). Warp head contributes (warpres >
+residual). Both components complementary. vs Bridge: APTD wins LPIPS big (0.422 vs 0.509)
+but not SSIM/PSNR (0.221 vs 0.249) -- perceptual-distortion tradeoff amplified by identifiability.
+Confounds: APTD only 1200 steps vs Bridge 5000; x0/1NFE vs velocity/4NFE; flow_scale=0.3 maybe large.
+
+Next: train warpres to 5000 steps + tune flow_scale/lambda_smooth + bootstrap CIs to see if SSIM
+catches up; else narrate via LPIPS/perceptual + honest tradeoff + PMOS secondary module.
