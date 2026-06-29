@@ -2,6 +2,16 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 62 轮：APTD/PMOS 双前置门均通过(APTD 强,PMOS 中)—— 含端点级证据
+
+> 用户重构:APTD=Anatomy-Preserving Transport Decomposition(F_post=W(F_pre,φ)+R_new,运输分解,非 attention 创新);PMOS=Plan-Marginalized Outcome Set(不可辨识手术方案显式边缘化成 K 个经验原型的集合预测,非普通 SIL)。两个廉价门 gate_aptd_pmos.py(无模块训练)。
+- **PMOS 门(Bridge 残差可聚类性,oracle best-of-K)**:K-means 训练残差 dB_res=B_post−B_base,val 最近原型分配 EV:K=4 **0.2125**(random −0.3462)、K=8 **0.2812**(random −0.2672)→ 残差有真实离散模态(oracle≫random),但 headroom 中等(~21–28% 残差=总变化的 ~7–9%)。PASS(中)。
+- **APTD 门(oracle 逐对 dense-warp)**:warp 残差占比 0.1822 → **形变解释 82% 术后变化**(残差 18%,低频 0.299/高频 0.615=钉棒边缘=R_new 的活)。LPIPS:no-op 术前 0.4283、Bridge 0.5090、oracle-warp 0.4002 → **Bridge 模糊的 LPIPS 比原封术前还差**,warp 搬清晰内容大幅更好。PASS(强)。
+- **判读**:APTD=强 GREEN(分解前提扎实 + 端点级图像 LPIPS 证据非特征代理,攻 Bridge 模糊真问题);PMOS=中 GREEN(有可覆盖离散模态,适合诚实一对多副模块+reliability,非主指标推手)。长串 null 后第一个端点级正信号。
+- **诚实边界**:oracle-warp 是上界(learned 够不到,几何部分不可预测),但"搬清晰/别模糊"可达且 baseline 低;未测 oracle-warp 的 SSIM(82% 可恢复→大概率也升);PMOS best-of-K 是 oracle 需 reliability 兜。
+- **结论**:两门过 → 实现。APTD 主推、PMOS 副。下一步:实现 APTD 双分支(warp 头 φ + 残差头 R_new,L_src/L_smooth/L_res),debug 卡 gate 验收 SSIM/LPIPS 超 Bridge。
+- **产物**:gate_aptd_pmos.py;gates.out(gitignored)。
+
 ## 2026-06-30 — 第 61 轮：Bridge 谐波误差诊断 = 红灯 → 双头方向也收口,Bridge-only 闭环坐实
 
 > R60 EV_harm=0.62 看着很有希望,但我坚持先做这个廉价诊断(投重训前),它揭示 0.62 是"Bridge 本就做掉了"的假象——正是反复出现的"表示可学≠端点改善"陷阱。

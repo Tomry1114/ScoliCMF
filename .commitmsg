@@ -1,0 +1,13 @@
+docs(R62): APTD and PMOS pre-gates both pass (APTD strong, endpoint-level signal)
+
+gate_aptd_pmos.py (no module training).
+PMOS gate residual clusterability oracle best-of-K: K=4 EV=0.21, K=8 EV=0.28 vs
+random-assign EV=-0.35 -> real discrete modes but MODERATE headroom. PASS moderate.
+APTD gate oracle per-pair dense warp: warp explains 82 pct of the change residual
+fraction 0.18 of which 62 pct high-freq. LPIPS no-op x_pre 0.428, Bridge 0.509,
+oracle-warp 0.400 -> Bridge blur is perceptually WORSE than the unchanged pre-op;
+warp-carry of sharp content has clear room. PASS strong.
+
+Read: APTD strong GREEN endpoint-level image LPIPS evidence; PMOS moderate GREEN for
+the honest set-valued component. First endpoint-level positive signal after the null chain.
+Next: implement APTD dual-branch warp head phi plus residual head R_new.

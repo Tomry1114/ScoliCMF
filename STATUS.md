@@ -130,3 +130,8 @@
 - EV_harm=0.62 是"Bridge 本就做掉"的假象;唯一可补的 miss 不可预测,与 Bridge 残差 EV_res=−0.009 同构 → 双头不赢端点。
 - **闭环:术前可预测的运输已被纯 Bridge 全捕获,残差/miss 不可预测(identifiability+生成噪声)→ 任何 pre-op 条件模块都不改善端点。**
 - **最终:Bridge-only。** 实验收口;SCM/SHMM+全诊断链=严谨负结果。下一步=论文叙事整理。
+
+## 更新 2026-06-30 R62 — APTD/PMOS 双前置门通过(APTD 强,PMOS 中,端点级证据)
+- gate_aptd_pmos.py(无训练):PMOS 残差 oracle best-of-K EV K4=0.21/K8=0.28(random −0.35)=离散模态但 headroom 中;APTD oracle-warp 解释 82% 变化(残差 18%、62% 高频)。
+- 关键:LPIPS no-op 术前 0.428 < Bridge 0.509,oracle-warp 0.400 → Bridge 模糊比术前还差,APTD 攻这个、有端点级 headroom。
+- 判读:APTD 强 GREEN(主推质量),PMOS 中 GREEN(副,诚实一对多)。下一步:实现 APTD 双分支(φ+R_new)。
