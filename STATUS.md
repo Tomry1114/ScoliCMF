@@ -99,3 +99,8 @@
 - 证实低秩≠低频:真实变化 rank-4(oracle0.989)但主方向非固定脊柱低频(DCT仅0.754),learned 基从术前对齐真实子空间补回。
 - **Step1+Step2 两道表示层门都过** → correction-aware basis 成立。**边界:这是表示层覆盖,非端点 SSIM/LPIPS,端点判定需 Step4(接 Frozen Bridge 残差)。**
 - 下一步:Step3(A_φ 比 point/secant)或直接 Step4 整合 pilot。待拍板。
+
+## 更新 2026-06-29 R57 — Step4 残差校正 pilot 实现 + 冒烟通过
+- 新文件:residual_model.py(DynamicCorrectionConditioner: A_φ+learned Q_φ+软谐波; 乘性 head c_dyn=0⇒u_corr=0; ResidualScoliCMF 冻结Bridge)+train_residual.py;sc_dit.py 加 forward_features/head_forward。
+- 冒烟(debug,secant,60步)全绿:5.35M 参数不 OOM;不变量 |u_corr|max=0.0;baseline 冻结Bridge=0.2490 正确;4损失齐;DYN-OFF 精确回 baseline。
+- **下一步**:secant gate pilot → FULL 是否超 baseline 0.2490 且 dyn-off 丢增益。过→point/static消融+长训;不过→Bridge-only。

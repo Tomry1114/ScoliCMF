@@ -219,20 +219,29 @@ class SCDiT(nn.Module):
         x = torch.einsum("nhwpqc->nchpwq", x)
         return x.reshape(x.shape[0], c, gh * p, gw * p)
 
-    def forward(self, z_t, r, t, x_pre, return_aux=False):
+    def _x_in(self, z_t, x_pre):
         if self.xpre_mode == "none":
-            x_in = z_t
-        elif self.xpre_mode == "blur":
+            return z_t
+        if self.xpre_mode == "blur":
             xb = F.interpolate(F.interpolate(x_pre, scale_factor=0.125, mode="bilinear", align_corners=False),
                                size=x_pre.shape[-2:], mode="bilinear", align_corners=False)
-            x_in = torch.cat([z_t, xb], dim=1)   # blurred x_pre: keeps gross pose, removes pixel-copy
-        else:
-            x_in = torch.cat([z_t, x_pre], dim=1)
-        x = self.x_embedder(x_in) + self.pos_embed
+            return torch.cat([z_t, xb], dim=1)   # blurred x_pre: keeps gross pose, removes pixel-copy
+        return torch.cat([z_t, x_pre], dim=1)
+
+    def forward_features(self, z_t, r, t, x_pre):
+        """Backbone up to (but excluding) the decode head. Returns (h tokens, c, aux)."""
+        x = self.x_embedder(self._x_in(z_t, x_pre)) + self.pos_embed
         c, aux = self.cond(x_pre, r, t, self.t_embedder(t), self.r_embedder(r))
         for blk in self.blocks:
             x = blk(x, c)
-        u = self.head(x, c) if isinstance(self.head, ConvHead) else self.unpatchify(self.head(x, c))
+        return x, c, aux
+
+    def head_forward(self, x, c):
+        return self.head(x, c) if isinstance(self.head, ConvHead) else self.unpatchify(self.head(x, c))
+
+    def forward(self, z_t, r, t, x_pre, return_aux=False):
+        x, c, aux = self.forward_features(z_t, r, t, x_pre)
+        u = self.head_forward(x, c)
         return (u, aux) if return_aux else u
 
 

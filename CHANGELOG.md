@@ -2,6 +2,16 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 57 轮：Step 4 残差校正 pilot 实现 + 冒烟通过
+
+- **实现（doc/correction_grounded_v2.md 第 4 步）**：
+  - models/sc_dit.py：SCDiT 拆出 forward_features（出 h tokens + c + aux）/ head_forward，forward 重构复用之（行为不变）。
+  - residual_model.py（新）：① DynamicCorrectionConditioner = 术前 token → correction potential A_φ(B,t)=(1−t)a₀+t(1−t)Σa_kℓ_k(t)（全区间割线 ā_{0,1}=a₀≠0；cond_mode=secant/point/static）→ learned 正交基 Q_φ(B_pre)（QR）→ 软谐波 m_dyn=QQᵀā+γ_{r,t}(I−QQᵀ)ā → 2D mass-preserving 回投到 patch；**无 m_static、无 time-emb 旁路**。② DynamicResidualHead = 乘性 h_corr=W_h(h)⊙tanh(W_g(c))+W_c(c)，全 bias-free + ResidualConvHead bias-free → **c_dyn=0 ⇒ u_corr=0 严格成立**。③ ResidualScoliCMF = 冻结 Bridge(no_grad)+dyn_cond+corr_head，u=u_base+u_corr，dyn_off 标志。
+  - train_residual.py（新）：加载冻结 s2_base，损失 L=λ_full·L_full+λ_corr·L_corr+λ_sub·L_sub+λ_harm·L_harm（L_corr=‖u_corr−sg(u*−u_base)‖，L_sub=‖(I−Π)ΔB‖²/‖ΔB‖²，ΔB=sg(B_post−B_pre)，L_harm=tr(QᵀL_path Q)）；EMA；周期评估 FULL vs DYN-OFF。
+- **冒烟（debug 卡，secant，60 步）通过**：5.35M 可训练参数 A40 不 OOM；**INVARIANT c_dyn=0→|u_corr|max=0.00e+00**；baseline 冻结 Bridge val SSIM4=0.2490（=s2_base，加载正确）；4 项损失齐（full/corr/sub/harm），cov=0.951、γ=0.522；DYN-OFF 精确回到 0.2490。
+- **下一步**：跑 secant 正式 gate pilot（debug 卡,周期 eval）→ 看 FULL 是否显著超 baseline 0.2490 且 dyn-off 丢掉增益。过 → 跑 point/static 消融 + 长训;不过 → 诚实 Bridge-only。
+- **产物**：models/sc_dit.py(改)/residual_model.py/train_residual.py;runs/res_smoke(冒烟)。
+
 ## 2026-06-29 — 第 56 轮：Step 2 通过（强）—— learned correction-aware 基远胜固定低频基
 
 - **探针（step2_basis_probe.py，debug 卡）**：复用 Step1 的 ΔB（冻结 stem+术前 pi），比较 rank-K 子空间对 val ΔB 的覆盖率 cov=‖ΠΔB‖²/‖ΔB‖²；learned Q_φ(B_pre)=小网络→J×K logits→QR→Π=QQᵀ，训练最小化 ‖(I−Π)ΔB‖²/‖ΔB‖²（x_post 仅训练用，输入仍只 x_pre）。
