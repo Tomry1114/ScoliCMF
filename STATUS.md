@@ -63,3 +63,12 @@
 - **遗留**：绝对 SSIM 仍 0.19–0.26(432 样本)；s5b 过 step4k 过拟合(best-val=step4000)；原始 16k 仍极缓升但基本走平。
 - **产物**：baseline_orig/(4 脚本)；runs/orig_baseline/(16 ckpt)；runs/{orig_sweep,orig_final16k,s5b_4k_final}.out。
 - **下一步候选**：(a) 把对照做成论文表(加 test 集 + bootstrap CI + 蒙太奇)；(b) 推 s5b best-val 更高(更强正则/缩容量/更多数据/预训练)；(c) 原始 baseline 训更久确认 plateau<0.20。
+
+## 更新 2026-06-29 R52 — 消融定锤：仅 Bridge 有效，SCM/SHMM 均阴性（实验收口）
+- **三创新点最终裁决（同数据/split/480×240/eval，val n=54，best-val=step5000）**：
+  - **① Pre-to-Post MeanFlow Bridge ✅ 唯一有效**：源锚定 s2_base SSIM4 0.249 / PSNR 13.55 vs 原始 noise→image 0.194 / 11.4；1NFE 差距更大（0.13→0.26）。
+  - **② SCM ❌ NULL**：static 0.2562 / point 0.2503 / secant 0.2529，CI 全重叠。R51 的「+23%」是 P0-1 评测污染（cond_mode 未透传）假象，**已撤回**。
+  - **③ SHMM ❌ NULL（已排除 collapse 混淆）**：L_tokdiv=0.1 重训后 tok_cos 0.993→0.285、R_removed 0.026→0.33（塌缩破、投影器激活），但 dct 0.2518 / v1 0.2514 / v2 0.2511 仍噪声内 → 患者特异图零增益。
+  - SC-PGA(SCM+SHMM) ≈ 纯 Bridge → 价值全在 Bridge。
+- **代码状态**：build_scpga 工厂同源（P0-1 修）、2D 注入空间质量门（P0-2 修）、L_tokdiv 破塌缩、诊断（tok_cos/E_top4/R_removed）入库。已提交 GitHub。
+- **下一步（待定方向）**：实验已停（用户指示）；论文叙事以 Bridge 为主，SCM/SHMM 报诚实阴性或重新设计。

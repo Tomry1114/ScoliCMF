@@ -2,6 +2,24 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 52 轮：撤回 SCM「+23%」+ SHMM 阴性定锤（L_tokdiv 排除 collapse 混淆）
+
+- **重大修正（撤回 R51 的 SCM-secant +23%）**：该正面结果是 **P0-1 评测污染假象**。根因：`eval_gates.build_model()` 未把 `cond_mode` 透传给 SCPGA（cond_mode 不在 state_dict 里），导致 point/static 的 ckpt 被一律当 `secant_full` 评测 → 三条 cond_mode 其实跑的是同一前向，差异是噪声。
+  - **修复**：统一 `build_scpga(cfg,H,W)` 工厂为唯一入口（sc_pga / train_sa / eval_gates / eval_ablation 同源传 cond_mode/proj/tau/w_min），并用旧码快照 `sc_pga_ce0b042.py` + 正确 cond_mode 对原 ckpt 重评（`eval_scm_oldcode.py`）。
+  - **修正后 SCM（val SSIM4 / PSNR4 / LPIPS4，best-val=step5000）**：static 0.2562[.2433,.2682] / point 0.2503[.2376,.2623] / secant 0.2529[.2401,.2651]。
+    → **SCM = NULL**：secant ≈ point ≈ static，CI 完全重叠。R51 的「secant vs point +23% / +0.93dB」**作废**。
+- **SHMM 阴性定锤（排除 token-collapse 混淆）**：R51 的 SHMM 阴性当时无法区分「真阴性」还是「token 塌缩使任何低通投影都惰性」。本轮加 `L_tokdiv=0.1` 重训 shmm_dct/v1/v2 到 5000 步后复测：
+  - **诊断（best ckpt）**：tok_cos 0.993→**0.285**（塌缩已破）、R_removed 0.026→**0.31~0.33**（投影器已激活，剥掉 ~10% 动态能量）。
+  - **指标（val SSIM4 / PSNR4 / LPIPS4）**：dct 0.2518[.2395,.2636] / v1 0.2514[.2390,.2632] / v2 0.2511[.2389,.2629]。
+    → **SHMM = 真 NULL**：collapse 破了、投影器在工作，dct≈v1≈v2 仍噪声内。患者特异图（v2）相对固定 DCT 基零增益，不是 bug 而是机制无效。
+- **三创新点最终裁决**：
+  - **① Pre-to-Post MeanFlow Bridge ✅**：源锚定（s2_base 0.249@4）大幅胜 noise→image（orig 0.194@4，PSNR 11.4），1NFE 差距更大。**唯一有效创新。**
+  - **② Secant Conditioning Module (SCM) ❌ NULL**。
+  - **③ Spinal Harmonic Modulation Module (SHMM) ❌ NULL**（已排除 collapse 混淆）。
+  - 整个 SC-PGA(SCM+SHMM) ≈ 纯 Bridge(s2_base) → **价值全在 Bridge**。
+- **文件/产物**：`eval_scm_oldcode.py` / `sc_pga_ce0b042.py` / `diag_shmm_new.py` / `run_eval_shmm_new.sh` / `scripts/run_{scm,shmm,shmm2}.sh` / `scripts/run_ablation_v2.sh` / `configs/verify_light.yaml`；runs/{shmm_dct,shmm_v1,shmm_v2}（L_tokdiv 重训）、runs/scm_*_pre_tokdiv。
+- **遗留**：实验阶段到此收口（用户指示停跑）；下一步=据此重写论文叙事（以 Bridge 为主，SCM/SHMM 报为诚实阴性或重新设计）。
+
 ## 2026-06-28 — 第 51 轮：修正后消融表完成（干净单因子，val 4-NFE）
 
 - **改动**：用修复后代码(P0/issue3/5/6 + lambda_time=0 + 同秩 SHMM)重训 7 变体并评测,出修正消融表。

@@ -28,3 +28,4 @@ cmp_1500.png
 cmp_2k_4k/
 baseline_orig/__pycache__/
 *.bak
+*.out
