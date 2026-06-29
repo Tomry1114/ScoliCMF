@@ -2,6 +2,21 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 61 轮：Bridge 谐波误差诊断 = 红灯 → 双头方向也收口,Bridge-only 闭环坐实
+
+> R60 EV_harm=0.62 看着很有希望,但我坚持先做这个廉价诊断(投重训前),它揭示 0.62 是"Bridge 本就做掉了"的假象——正是反复出现的"表示可学≠端点改善"陷阱。
+- **诊断 step1d_bridge_harm.py（debug）**：c*=U_lowᵀPool_π(x_post−x_pre)(真谐波运输),c_base=U_lowᵀPool_π(x̂_base−x_pre)(Bridge 4-NFE 实际跑出的谐波运输)。
+- **结果**：
+  - ‖c_base‖/‖c*‖(val)=**0.8706** → Bridge 已完成 87% 谐波运输幅度。
+  - Bridge 谐波误差 ‖c*−c_base‖²/‖c*‖²(val)=**0.2501** → Bridge 漏掉 ~25% 谐波能量。
+  - [BridgeHarmMiss] frac_patient_specific 0.9998、**EV_val=−0.0337(train@best 0.2489)** → Bridge 漏掉的那 25% **不可由术前预测**(train 过拟合到 0.25,val 不泛化)。
+- **判定：红灯**。EV_harm=0.62 高,是因为 c* 的 ~87% 本就被 Bridge 重现(可预测的谐波 = Bridge 已学的部分);**唯一能让新头补的"Bridge miss"(25%)不可预测**。与 Bridge 残差 EV_res=−0.009 完全同构 → 双头/谐波头同样不会赢端点。
+- **闭环结论(全avenue一致)**：术前可预测的运输分量(总变化 EV0.32 / 谐波 EV0.62)**已被纯源锚定 MeanFlow(Bridge)全部捕获**;Bridge 的残差/谐波-miss 都不可预测(EV≈0)= 不可观测手术方案(identifiability kill)+(部分)生成噪声。**任何 pre-op-conditioned 的加性/残差/双头模块都无法改善端点。**
+- **最终决定:Bridge-only。** 实验探索收口。Pre-to-Post MeanFlow Bridge = 唯一有效贡献;SCM/SHMM(旧加性条件 + 新 correction-grounded + 新双头谐波)连同 Step1–4 + EV_res + EV_harm + 本诊断 = 一条严谨完整的负结果链(系统检验了术后变化的可矫正性,并逐层证明 pre-op 能预测的都被 Bridge 吃掉了)。
+- **诚实边界**：c_base 用生成图(encoder OOD),25% miss 里有部分可能是生成噪声;但无论哪种,加模块都救不了端点。
+- **产物**：step1d_bridge_harm.py;step1d.out(gitignored)。
+- **下一步**：把这条负结果链整理成论文叙事/图表(Bridge 主张 + "为什么没有 conditioning 模块能帮"的机制分析)。
+
 ## 2026-06-30 — 第 60 轮：EV_harm 前置门强阳性（新方向 = 预测可辨识的全局脊柱谐波运输）
 
 > 用户重构方向：不再碰已证不可预测的 Bridge 残差,改让 SCM/SHMM 预测**总变化里可辨识的全局脊柱协调分量**(线性 secant→U_low→scatter,割线加法性作用在最终速度场上),主干管局部残差。先跑最廉价前置门 EV_harm。

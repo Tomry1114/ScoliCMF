@@ -124,3 +124,9 @@
 - 保留:EV 高=目标可预测且主导,但≠端点改善;单头 Bridge 本可表示低频全局运输,若已抓住则双头不赢端点。
 - **下一诊断(去风险,廉价)**:Bridge 输出谐波误差 c_base vs c*——小=Bridge-only,大且可预测=双头有空间。再实现双头 MeanFlow。
 - 新名:SCM=Secant Coefficient Module;SHMM=Spinal Harmonic Motion Module(固定 path 基线性重建,降级为 ordered transport decomposition)。
+
+## 更新 2026-06-30 R61 — Bridge 谐波误差诊断=红灯 → Bridge-only 闭环坐实
+- step1d:‖c_base‖/‖c*‖=0.871(Bridge 已做 87% 谐波运输);谐波误差 0.250;[BridgeHarmMiss] EV_val=−0.034(train 0.249)=漏掉部分不可预测。
+- EV_harm=0.62 是"Bridge 本就做掉"的假象;唯一可补的 miss 不可预测,与 Bridge 残差 EV_res=−0.009 同构 → 双头不赢端点。
+- **闭环:术前可预测的运输已被纯 Bridge 全捕获,残差/miss 不可预测(identifiability+生成噪声)→ 任何 pre-op 条件模块都不改善端点。**
+- **最终:Bridge-only。** 实验收口;SCM/SHMM+全诊断链=严谨负结果。下一步=论文叙事整理。
