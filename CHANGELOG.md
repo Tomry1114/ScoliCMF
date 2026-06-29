@@ -2,6 +2,20 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 60 轮：EV_harm 前置门强阳性（新方向 = 预测可辨识的全局脊柱谐波运输）
+
+> 用户重构方向：不再碰已证不可预测的 Bridge 残差,改让 SCM/SHMM 预测**总变化里可辨识的全局脊柱协调分量**(线性 secant→U_low→scatter,割线加法性作用在最终速度场上),主干管局部残差。先跑最廉价前置门 EV_harm。
+- **探针 step1c_harm_ev.py（debug）**：冻结 shmm_v2 tokenizer;y*=Pool_π(x_post−x_pre)(图像位移降采到 stem 网格、术前 π 池化到 J token);c*=U_lowᵀy*(U_low=path-Laplacian 低频 rank-4 固定基);训 MLP B_pre→c*,val EV_harm。
+- **结果**：
+  - harmonic energy share(val)=**0.8693** → 池化 token 位移 87% 在 rank-4 低频谐波子空间(全局运输确实低频主导,与旧 SHMM 套在抽象特征上丢 25% 形成对比)。
+  - [c_harm Kg=4] frac_patient_specific 0.673、**EV_val=0.6182**(train 0.664,gap 0.046,强泛化)。
+  - [y_full J=12] EV_val=0.6346(谐波系数≈抓住全 token 位移全部可预测性)。
+- **判定（用户阈值）**：EV_harm 0.62 ≫ 0.3 = "很有希望成为有效机制"。EV 链:Bridge 残差 −0.009 < 总变化特征 ΔB 0.318 < **谐波运输系数 0.62**。
+- **保留（关键,下一步要先钉死）**：EV_harm 高 = 谐波目标**可预测且占主导**(必要条件),但 ≠ 端点会改善。复发教训:表示可学 ≠ 端点提升。**且单头 MeanFlow(Bridge)本就能表示低频全局运输** —— 若 Bridge 已隐式抓住该谐波分量,显式双头不会赢端点(同 Step4 陷阱)。**决定性下一诊断 = 测 Bridge 输出的谐波运输误差**:c_base=U_lowᵀPool_π(x̂_base−x_pre) vs c*;若 Bridge 已重现(误差小)→ 谐波已被单头解决 → Bridge-only;若 Bridge 漏掉且漏掉部分可由术前预测 → 双头有真实空间。
+- **下一步（用户计划）**：① EV_harm 门 ✓ → ② 实现双头 MeanFlow(local head + secant harmonic head,确定性 target 分解 u*=u*_harm+u*_local)→ ③ 比较 Bridge / Bridge+harmonic / full。建议②前先做上面的廉价 Bridge-harmonic-error 诊断去风险。
+- **新命名**：SCM=Secant Coefficient Module(势函数割线出区间系数);SHMM=Spinal Harmonic Motion Module(固定 path 低频基+anatomy scatter 线性重建运输场);主张降级为 ordered spinal harmonic transport decomposition(非 patient-specific basis)。
+- **产物**：step1c_harm_ev.py;step1c.out(gitignored)。
+
 ## 2026-06-29 — 第 59 轮：Bridge 残差 EV_res ≈ 0（决定性 identifiability 判定,无 confound）
 
 > 回应用户对 R57/R58 的代码审查（5 个 confound：表示没继承 / L_full≡L_corr 重复 / SHMM 监督错对象 / teacher-forcing vs rollout 错配 / 增强没开）。先做最决定性的前置实验：**Bridge 残差是否可由术前预测**。本探针**不含那 5 个 bug**（复用冻结的已验证 tokenizer、无损失重复、target=Bridge 残差、纯离线回归无 rollout、标准化输入），故能干净隔离核心问题。

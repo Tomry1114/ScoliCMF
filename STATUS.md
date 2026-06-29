@@ -117,3 +117,10 @@
   - **dB_RESID:EV_val=−0.009(train 0.015)** → 术前对 Bridge 残差零预测力(残差 79% 患者特异但不可预测=手术方案不可观测+生成噪声)。
 - 推论:Step4 必然过拟合(预测无信号的残差),修 bug 也救不回 → 瓶颈是 identifiability,非实现 bug(无 confound)。
 - **结论:Bridge-only**;SCM/SHMM + Step1–4 诊断作诚实负结果。边界:target 含生成噪声;仅测 f(B_pre)。
+
+## 更新 2026-06-30 R60 — EV_harm 前置门强阳性(新方向:预测全局脊柱谐波运输)
+- step1c_harm_ev.py:harmonic energy share=0.869(总运输 87% 在 rank-4 低频谐波);[c_harm Kg=4] EV_val=0.618(train 0.664)。
+- EV 链:Bridge 残差 −0.009 < 总变化 ΔB 0.318 < **谐波系数 0.62** ≫ 0.3 阈值。
+- 保留:EV 高=目标可预测且主导,但≠端点改善;单头 Bridge 本可表示低频全局运输,若已抓住则双头不赢端点。
+- **下一诊断(去风险,廉价)**:Bridge 输出谐波误差 c_base vs c*——小=Bridge-only,大且可预测=双头有空间。再实现双头 MeanFlow。
+- 新名:SCM=Secant Coefficient Module;SHMM=Spinal Harmonic Motion Module(固定 path 基线性重建,降级为 ordered transport decomposition)。
