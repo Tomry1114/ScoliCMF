@@ -2,6 +2,22 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 53 轮：D1–D3 同-checkpoint 干预 → 旧「加性条件」SHMM/SCM 设计正式终结
+
+> 本轮是**旧 SHMM/SCM 设计的正式终点**。新残差架构（doc/residual_correction_v1.md）为独立新阶段，**不得覆盖/改写**此处的干净阴性结论。
+
+- **动机**：R52 的「SHMM 真 null」依赖独立重训比较，存在第 5 点混淆（每个模型把 g_k/M_dyn 重参数化适配固定 Π）。改用**同一 v2 checkpoint、eval-only**的三个受控干预（diag_shmm_causal.py，debug 卡）。
+- **D1 投影器替换（同权重，无重训；在 v2-trained 特征上换 Π）**：
+  - v2 0.2511/LPIPS0.4657 | dct 0.2497(dOut0.022) | v1 0.2500(0.017) | identity 0.2497(0.029) | permuted 0.2500(0.042) | **random 0.2409/LPIPS0.5121(dOut0.119)**。
+  - → 消除独立重训混淆后**结论不变**：dct≈v1≈v2≈identity（含满秩无限制），输出几乎不动；只有 random 明显恶化。即**模型需要"某个结构化动态子空间"，但不在乎是哪个平滑基**，患者特异 v2 相对固定 dct 零增益。投影分支**非惰性**（random 伤害），但患者特异性无用。
+- **D2 动态分支因果（同权重）**：C_dyn=0.305（关 m_dyn → u 变 ~30%，**有真实因果通路**）；C_stat=0.067；endpoint SSIM4 full 0.2511 → dyn_off 0.2392（**Δ 仅 0.012**）。
+  - → 动态分支改变输出却几乎不改变**正确性**；SHMM 优化的支路对终点只值 1.2% SSIM —— **杠杆太小**。
+- **D3 真实术后变化 ΔB=B_post−B_pre 的子空间可表示性（能量比，修正范数→能量）**：E_top4(ΔB)=0.989（真实变化**本质 rank-4**）；E_dct=0.7543 / E_v1=0.7417 / **E_v2=0.7693**。
+  - → v2 比 dct **略好 +1.5pp**（核心假设方向对、**未被数据否定**），但三者都只装 ~75%，**共有 ~25% 真实变化（局部高频术后改变）落在任意 rank-4 低频子空间外**。
+- **综合（旧设计终判）**：旧「加性条件」SHMM/SCM 在终点层 = 确认阴性。机制真实、方向正确，但 ① 杠杆太小（D2）② 模型对平滑基选择不敏感（D1）③ rank-4 硬投影对 dct/v1/v2 共丢 ~25% 高频（D3）。**单调 L_tokdiv/τ/K_g 注定无效**——根因是架构（加性旁路 + 主干直读 z_t/blur(x_pre)），非超参。
+- **决策**：旧设计到此封板。新阶段 = **冻结 Bridge + 残差校正分支**（Pilot A/B/C，见 doc/residual_correction_v1.md）。
+- **产物**：diag_shmm_causal.py（D1/D2/D3 三合一，eval-only）；diag_causal.out（gitignored）。
+
 ## 2026-06-29 — 第 52 轮：撤回 SCM「+23%」+ SHMM 阴性定锤（L_tokdiv 排除 collapse 混淆）
 
 - **重大修正（撤回 R51 的 SCM-secant +23%）**：该正面结果是 **P0-1 评测污染假象**。根因：`eval_gates.build_model()` 未把 `cond_mode` 透传给 SCPGA（cond_mode 不在 state_dict 里），导致 point/static 的 ckpt 被一律当 `secant_full` 评测 → 三条 cond_mode 其实跑的是同一前向，差异是噪声。

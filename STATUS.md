@@ -72,3 +72,11 @@
   - SC-PGA(SCM+SHMM) ≈ 纯 Bridge → 价值全在 Bridge。
 - **代码状态**：build_scpga 工厂同源（P0-1 修）、2D 注入空间质量门（P0-2 修）、L_tokdiv 破塌缩、诊断（tok_cos/E_top4/R_removed）入库。已提交 GitHub。
 - **下一步（待定方向）**：实验已停（用户指示）；论文叙事以 Bridge 为主，SCM/SHMM 报诚实阴性或重新设计。
+
+## 更新 2026-06-29 R53 — 旧 SHMM/SCM 设计正式终结（D1–D3 同 ckpt 干预）
+- **三受控干预（shmm_v2 step5000，eval-only）消除独立重训混淆后，旧"加性条件"SHMM/SCM 确认阴性**：
+  - D1 投影器替换：dct≈v1≈v2≈identity（dOut 0.017–0.029，SSIM4 噪声内），仅 random 恶化（0.2409）→ 模型要结构化子空间但不在乎哪个平滑基。
+  - D2 因果：C_dyn=0.305（有因果通路）但 dyn_off 后 SSIM4 仅 0.2511→0.2392（Δ0.012）→ 动态分支对终点只值 1.2% SSIM，杠杆太小。
+  - D3 表示力（能量）：E_v2=0.769 > E_dct=0.754（+1.5pp，假设未被否定），但都丢 ~25% 高频术后变化。
+- **根因 = 架构（加性旁路 + 主干直读 z_t/blur(x_pre)），非超参** → 单调 L_tokdiv/τ/K_g 无效。
+- **下一阶段（新，不覆盖本阴性）**：冻结 Bridge + 残差校正分支，doc/residual_correction_v1.md（Pilot A/B/C + 验收门）。待用户拍板是否动手 Pilot A。
