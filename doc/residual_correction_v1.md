@@ -1,3 +1,5 @@
+> **[R54 状态] 本文档降级为 doc/correction_grounded_v2.md 的第 4 步（最终集成）。** 在前置门 Step1（术前能否预测有意义 ΔB）+ Step2（learned basis）+ Step3（correction potential）通过前，不实现此残差分支——否则只是强迫模型使用尚未证明合理的条件表达。
+
 # 残差校正阶段 v1 — Frozen Bridge + SCM/SHMM 残差分支
 
 > **新实验阶段（独立于已封板的旧"加性条件"SHMM/SCM 设计，见 CHANGELOG R53）。**

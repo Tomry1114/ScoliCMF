@@ -80,3 +80,10 @@
   - D3 表示力（能量）：E_v2=0.769 > E_dct=0.754（+1.5pp，假设未被否定），但都丢 ~25% 高频术后变化。
 - **根因 = 架构（加性旁路 + 主干直读 z_t/blur(x_pre)），非超参** → 单调 L_tokdiv/τ/K_g 无效。
 - **下一阶段（新，不覆盖本阴性）**：冻结 Bridge + 残差校正分支，doc/residual_correction_v1.md（Pilot A/B/C + 验收门）。待用户拍板是否动手 Pilot A。
+
+## 更新 2026-06-29 R54 — 旧 SCM=时间重参数化(code-verified) → correction-grounded 重定义
+- **code-verified(legendre.py)旧 SCM 无新信息**：secant mean₁≡ℓ₁(p)(误差0)、₂=ℓ₂(p)+Δ²/2(3e-7)、potential_dd(0,1)=[0,0] → c̄ 是 (B,p,Δ) 确定函数,static≈point≈secant 是数学必然。
+- **方法定义本身的问题**(非杠杆/非超参)：secant 加法性经 MLP 消失;旧 SHMM 图错对象(术前外观≠术后矫形);static/dynamic 不可辨识;低秩≠低频。
+- **重定义(doc/correction_grounded_v2.md)**：SCM→Correction Potential(受 ΔB 监督,全区间非零);SHMM→correction-aware learned 基 Q_φ + 软谐波 γ;统一链。
+- **顺序**：Step1 术前能否预测 ΔB(前置门)→2 learned basis>DCT/Id→3 加 A_φ 比 point/secant→4 接 Frozen Bridge 残差(residual_correction_v1.md 降级为 Step4)。
+- **待拍板**：是否跑 Step1 探针(debug 卡)。

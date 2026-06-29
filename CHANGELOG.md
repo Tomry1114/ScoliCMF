@@ -2,6 +2,20 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 54 轮：旧 SCM = 时间重参数化（code-verified）→ 方法重定义为 correction-grounded
+
+> 用户深度方法批判 + 我用 legendre.py **数值验证**：旧 SCM/SHMM 的**方法定义本身**有根本问题，残差架构（R53/0b23d49）只解决"无决定权"、解决不了"信息是否成立"。**残差架构降级为 4 步计划的第 4 步。**
+- **code-verified（legendre.py，CPU）旧 SCM = (B,p,Δ) 时间重参数化，无新患者信息**：令 p=(r+t)/2,Δ=t−r。
+  - `max|potential_dd₁(r,t) − ℓ₁(p)| = 0.0`（一阶 secant mean ≡ midpoint point condition）。
+  - `max|potential_dd₂(r,t) − (ℓ₂(p)+Δ²/2)| = 3.1e-7`（二阶 = ℓ₂(p)+Δ²/2）。
+  - `potential_dd(0,1)=[0,0]`、`trend(0,1)=[0,0]`（全区间/1-NFE 动态项恒零）。
+  → `c̄_{r,t}=ℓ₁(p)A₁(B)+(ℓ₂(p)+Δ²/2)A₂(B)` 是 (B,p,Δ) 确定函数，p,Δ 已入网 → static≈point≈secant 是数学必然，非训练不足。
+- **其余方法缺陷（认同）**：secant 加法性经非线性 M_dyn 后消失（叙事非承重）；trend 的 (1−Δ) 只为强制全区间零；旧 SHMM v2 图描述术前外观非术后矫形（D3 +1.5pp 只贴合特征差分）；static/dynamic 不可辨识（同源+联合训练，q 可任意搬运）；低秩≠低频（E_top4=0.99 不支持"低频足够"）。
+- **方法重定义（doc/correction_grounded_v2.md）**：① 新 SCM=Correction Potential（a₀=f_corr(B_pre) 受 ΔB=sg(B_post−B_pre) 监督；A_φ(B,t)=(1−t)a₀+t(1−t)Σa_kψ_k(t)，A_φ(B,1)=0、A_φ(B,0)=a₀；全区间割线 ā_{0,1}=a₀≠0）；② 新 SHMM=Correction-Aware learned 正交基 Q_φ(B_pre)（L_sub=||(I−QQᵀ)ΔB||²/(||ΔB||²+ε)）+ 软谐波 m_out=QQᵀm_raw+γ(I−QQᵀ)m_raw；③ 统一链 B_pre→(Q_φ,a_φ)→ā_{r,t}→Q_φā+γ(I−Q_φQ_φᵀ)…→u_corr。
+- **实施顺序（前置门优先）**：Step1 验证术前能否预测有意义 ΔB（EV vs 群体均值基线；EV≈0 → identifiability kill 主导 → 诚实 Bridge-only）→ Step2 learned basis 是否胜 DCT/Identity → Step3 加 A_φ 比 point vs secant → Step4 接 Frozen Bridge 残差分支。**不先给旧模块决定权。**
+- **产物**：doc/correction_grounded_v2.md（主计划）；doc/residual_correction_v1.md 加头注降级为 Step4。
+- **待用户拍板**：是否运行 Step1 前置门探针（debug 卡，小 f_corr，验收 EV）。
+
 ## 2026-06-29 — 第 53 轮：D1–D3 同-checkpoint 干预 → 旧「加性条件」SHMM/SCM 设计正式终结
 
 > 本轮是**旧 SHMM/SCM 设计的正式终点**。新残差架构（doc/residual_correction_v1.md）为独立新阶段，**不得覆盖/改写**此处的干净阴性结论。
