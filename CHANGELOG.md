@@ -2,6 +2,17 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 55 轮：Step 1 前置门通过 —— 术前可预测患者特异 ΔB（重定义可行）
+
+- **探针（step1_dB_probe.py，debug 卡，eval+小训练）**：冻结 shmm_v2 的 cond.stem + 术前 pi 池化取 B_pre/B_post（同一 pi），ΔB=sg(B_post−B_pre)，train 432/val 54；训 f_corr(B_pre)→ΔB̂，验收 val 解释方差 EV=1−‖ΔB−f‖²/‖ΔB−ΔB̄‖²（ΔB̄=训练集群体均值）。
+- **结果**：
+  - frac patient-specific (val) ‖ΔB−ΔB̄‖²/‖ΔB‖² = **0.478**（48% 患者特异，52% 共有均值矫形）。
+  - **MLP best EV_val = 0.358**（EV_train@best 0.474，gap 小 → 真信号非过拟合）。
+  - 线性探针欠拟合（巨型 J·D 线性层+重 wd 优化太慢，EV_val 负、单调上升未收敛）→ 无结论，不影响判定。
+- **判定：GREEN**。术前携带有意义、可泛化的患者特异 ΔB 信号（EV_val 0.358 ≫ 0.1 阈值）→ identifiability kill 未完全主导，correction potential / correction-aware basis 有可学对象 → **进 Step 2**。
+- **诚实边界**：① stem OOD 套 x_post 取 ΔB 会压低 EV → 0.358 是保守下界（换冻结/EMA target encoder 应更高）；② 52% 共有均值是任何模块的平凡基线，SCM/SHMM 要挣的是 48% 患者特异部分（术前可预测其中 ~36%）= 模块收益的现实天花板。
+- **产物**：step1_dB_probe.py；step1.out（gitignored）。下一步 Step 2：验证 learned 正交基 Q_φ 是否明显优于 DCT/Identity（用本轮 ΔB，比 L_sub 覆盖率）。待用户拍板。
+
 ## 2026-06-29 — 第 54 轮：旧 SCM = 时间重参数化（code-verified）→ 方法重定义为 correction-grounded
 
 > 用户深度方法批判 + 我用 legendre.py **数值验证**：旧 SCM/SHMM 的**方法定义本身**有根本问题，残差架构（R53/0b23d49）只解决"无决定权"、解决不了"信息是否成立"。**残差架构降级为 4 步计划的第 4 步。**

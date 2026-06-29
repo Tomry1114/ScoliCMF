@@ -87,3 +87,9 @@
 - **重定义(doc/correction_grounded_v2.md)**：SCM→Correction Potential(受 ΔB 监督,全区间非零);SHMM→correction-aware learned 基 Q_φ + 软谐波 γ;统一链。
 - **顺序**：Step1 术前能否预测 ΔB(前置门)→2 learned basis>DCT/Id→3 加 A_φ 比 point/secant→4 接 Frozen Bridge 残差(residual_correction_v1.md 降级为 Step4)。
 - **待拍板**：是否跑 Step1 探针(debug 卡)。
+
+## 更新 2026-06-29 R55 — Step1 前置门通过（术前可预测患者特异 ΔB）
+- 探针 step1_dB_probe.py：冻结 stem+术前 pi 取 ΔB=sg(B_post−B_pre)，train432/val54，f_corr(B_pre)→ΔB̂。
+- frac patient-specific(val)=0.478；**MLP best EV_val=0.358**(EV_train 0.474,gap小=真信号);线性探针欠拟合无结论。
+- **GREEN**:术前有可泛化患者特异 ΔB 信号(≫0.1)→ 重定义可行,进 Step2(learned basis Q_φ vs DCT/Identity)。
+- 边界:stem OOD 压低 EV(0.358 是下界);52% 共有均值=平凡基线,模块挣 48% 患者特异部分(术前可预测~36%)。
