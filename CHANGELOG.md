@@ -2,6 +2,20 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 59 轮：Bridge 残差 EV_res ≈ 0（决定性 identifiability 判定,无 confound）
+
+> 回应用户对 R57/R58 的代码审查（5 个 confound：表示没继承 / L_full≡L_corr 重复 / SHMM 监督错对象 / teacher-forcing vs rollout 错配 / 增强没开）。先做最决定性的前置实验：**Bridge 残差是否可由术前预测**。本探针**不含那 5 个 bug**（复用冻结的已验证 tokenizer、无损失重复、target=Bridge 残差、纯离线回归无 rollout、标准化输入），故能干净隔离核心问题。
+- **探针 step1b_residual_ev.py（debug）**：冻结 shmm_v2 tokenizer + 冻结 s2_base Bridge；x̂_base=Bridge 4-NFE 采样；用术前 pi 池化得 B_pre/B_post/B_base；ΔB_res=B_post−B_base；训 MLP f(B_pre)→ΔB_res，val 解释方差 EV_res（vs 训练集群体均值基线）。
+- **结果**：
+  - ‖ΔB_res‖²/‖ΔB_tot‖²(val)=0.3230 → Bridge 已解释 ~68% 总变化，**残留 ~32%**。
+  - [dB_total] sanity：frac_patient_specific 0.478、EV_val 0.318（≈ Step1 的 0.358，复现,探针可信）。
+  - **[dB_RESID]：frac_patient_specific 0.792、EV_val = −0.009（EV_train@best 0.015）**。
+- **判定（按用户 EV_res 准则）**：EV_res ≤ 0 → **Bridge 残差基本不可由术前信息预测 → Bridge-only**。残差虽 79% 患者特异、量也不小（32%），但**不可预测** = 不可观测手术方案（identifiability kill）+（部分）Bridge 生成噪声。
+- **关键推论**：Step 4 必然过拟合,因为它试图预测一个**无可泛化信号**的残差（连干净探针都 EV_train 0.015 拟合不动）→ **修那 5 个 bug 也救不回**（没有可学对象）。这次"瓶颈是 identifiability 而非实现 bug"是**无 confound 的结论**：探针已避开全部 5 个 bug,总变化方向仍有信号（0.318）、唯独 Bridge 残差没有。
+- **诚实边界**：① target 用 E(x̂_base),x̂_base 是生成图(对 encoder OOD),部分残差可能是生成噪声而非纯 identifiability —— 但无论哪种,correction 都救不了端点;② 仅测 f(B_pre);h_base 是术前的下游函数,几乎不会带来独立信号,若要极致严谨可补测 f(B_pre,h_base)。
+- **结论**：Step1–4 + 本轮 = "我们严格检验了术后残差是否可矫正,并证明其不可由术前预测"的强负结果 → 论文贡献 = Pre-to-Post MeanFlow Bridge;SCM/SHMM 连同全部诊断作诚实负结果。
+- **产物**：step1b_residual_ev.py;step1b.out(gitignored)。
+
 ## 2026-06-29 — 第 58 轮：Step 4 secant gate pilot 未通过 —— 表示层赢但端点不兑现（过拟合/数据受限）
 
 - **gate pilot（res_secant，debug，2000 步，cond_mode=secant）**：

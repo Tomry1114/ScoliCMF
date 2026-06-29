@@ -110,3 +110,10 @@
 - 训练损失全降(l_full/l_corr↓, l_sub cov 0.938, γ→0.12)但 val 端点单调恶化 = 过拟合(5.35M/432对),4-NFE rollout 累积误差。
 - 全局一致:Step1/2 + 本轮都在表示层能拟合,没一次转端点增益 → 瓶颈=数据规模+identifiability,非表示。
 - 待拍板:① 强正则小容量 retry 确认是否纯过拟合;② 诚实 Bridge-only。
+
+## 更新 2026-06-29 R59 — Bridge 残差 EV_res≈0(决定性,无 confound) → Bridge-only
+- step1b_residual_ev.py(复用冻结验证 tokenizer+冻结 Bridge,避开 R57/R58 全部 5 个 bug):
+  - ‖ΔB_res‖²/‖ΔB_tot‖²=0.323(Bridge 后残留 32%);dB_total sanity EV_val 0.318(≈Step1,可信)。
+  - **dB_RESID:EV_val=−0.009(train 0.015)** → 术前对 Bridge 残差零预测力(残差 79% 患者特异但不可预测=手术方案不可观测+生成噪声)。
+- 推论:Step4 必然过拟合(预测无信号的残差),修 bug 也救不回 → 瓶颈是 identifiability,非实现 bug(无 confound)。
+- **结论:Bridge-only**;SCM/SHMM + Step1–4 诊断作诚实负结果。边界:target 含生成噪声;仅测 f(B_pre)。
