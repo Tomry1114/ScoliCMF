@@ -2,6 +2,21 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-29 — 第 56 轮：Step 2 通过（强）—— learned correction-aware 基远胜固定低频基
+
+- **探针（step2_basis_probe.py，debug 卡）**：复用 Step1 的 ΔB（冻结 stem+术前 pi），比较 rank-K 子空间对 val ΔB 的覆盖率 cov=‖ΠΔB‖²/‖ΔB‖²；learned Q_φ(B_pre)=小网络→J×K logits→QR→Π=QQᵀ，训练最小化 ‖(I−Π)ΔB‖²/‖ΔB‖²（x_post 仅训练用，输入仍只 x_pre）。
+- **结果（val 覆盖率）**：
+  | K | DCT | v1 | v2(旧) | random | learnedQ(val)[train] | oracle(per-sample SVD topK) |
+  |---|---|---|---|---|---|---|
+  | **4** | 0.754 | 0.742 | 0.769 | 0.337 | **0.937** [0.950] | 0.989 |
+  | 6 | 0.932 | 0.902 | 0.919 | 0.583 | 0.989 [0.992] | 0.999 |
+  | 8 | 0.953 | 0.939 | 0.954 | 0.667 | 0.996 [0.997] | 1.000 |
+- **判定：GREEN（强）**。rank-4 处 learned Q_φ val=0.937 ≫ DCT 0.754（+18.3pp，几乎补回 D3 丢掉的 ~25%），train-val gap 仅 0.012（真泛化）；远胜 random 0.337；逼近 oracle 0.989。
+- **证实用户第 8 点（低秩≠低频）**：真实变化本质 rank-4（oracle 0.989），但主方向**不是固定脊柱低频方向**（DCT 仅 0.754）；从术前预测的 learned 基对齐真实子空间并补回。learned 基**秩效率高**：K=4 即达 0.937 ≈ DCT 需 K=6（0.932）。
+- **诚实边界**：这是**表示层**对 ΔB 的覆盖，**非端点 SSIM/LPIPS**；"覆盖 token 变化更多" ≠ "生成术后图更好"——端点收益要 Step 4（接 Frozen Bridge 残差）才能判。stem OEED 套 x_post 仍压低绝对值。
+- **结论**：Step1（术前可预测 ΔB，EV0.358）+ Step2（learned 基覆盖 0.937）**两道表示层门都过**，correction-aware basis 是对的对象。SHMM 重设计在表示层成立。
+- **产物**：step2_basis_probe.py；step2.out（gitignored）。下一步候选：Step3（加区间势函数 A_φ 比 point vs secant）或直接 Step4 整合 pilot（端点判定）。待用户拍板。
+
 ## 2026-06-29 — 第 55 轮：Step 1 前置门通过 —— 术前可预测患者特异 ΔB（重定义可行）
 
 - **探针（step1_dB_probe.py，debug 卡，eval+小训练）**：冻结 shmm_v2 的 cond.stem + 术前 pi 池化取 B_pre/B_post（同一 pi），ΔB=sg(B_post−B_pre)，train 432/val 54；训 f_corr(B_pre)→ΔB̂，验收 val 解释方差 EV=1−‖ΔB−f‖²/‖ΔB−ΔB̄‖²（ΔB̄=训练集群体均值）。

@@ -93,3 +93,9 @@
 - frac patient-specific(val)=0.478；**MLP best EV_val=0.358**(EV_train 0.474,gap小=真信号);线性探针欠拟合无结论。
 - **GREEN**:术前有可泛化患者特异 ΔB 信号(≫0.1)→ 重定义可行,进 Step2(learned basis Q_φ vs DCT/Identity)。
 - 边界:stem OOD 压低 EV(0.358 是下界);52% 共有均值=平凡基线,模块挣 48% 患者特异部分(术前可预测~36%)。
+
+## 更新 2026-06-29 R56 — Step2 通过(强): learned 基远胜固定低频基
+- step2_basis_probe.py：rank-4 val 覆盖率 learned Q_φ=0.937 ≫ DCT 0.754(+18.3pp)≫ random 0.337,逼近 oracle 0.989;train-val gap 0.012。
+- 证实低秩≠低频:真实变化 rank-4(oracle0.989)但主方向非固定脊柱低频(DCT仅0.754),learned 基从术前对齐真实子空间补回。
+- **Step1+Step2 两道表示层门都过** → correction-aware basis 成立。**边界:这是表示层覆盖,非端点 SSIM/LPIPS,端点判定需 Step4(接 Frozen Bridge 残差)。**
+- 下一步:Step3(A_φ 比 point/secant)或直接 Step4 整合 pilot。待拍板。
