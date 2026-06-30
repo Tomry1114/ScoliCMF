@@ -2,6 +2,26 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 64 轮：APTD warpres 5000 步长训 —— 翻盘,Pareto-支配 Bridge(揭示感知-失真前沿)
+
+- **两条轨迹(warpres,5000 步,A40 i64m1tga40u,flow_scale 0.15 / 0.3 几乎一致)**,1-NFE:
+  | step | SSIM↑ | PSNR↑ | LPIPS↓ |
+  |---|---|---|---|
+  | 1000 | 0.2146 | 12.32 | **0.4240** |
+  | 2000 | 0.2554 | 13.59 | 0.4429 |
+  | 3000 | 0.2849 | 14.09 | 0.5173 |
+  | 4000 | 0.2974 | 14.24 | 0.6151 |
+  | 5000 | **0.3018** | **14.26** | 0.6650 |
+  - 参照 Bridge(s2_base best-val,velocity/4NFE):SSIM 0.2490 / PSNR 13.55 / LPIPS 0.5090。
+- **关键发现:单个 APTD 模型沿感知-失真前沿移动,Bridge 被 Pareto-支配**:
+  - 早期(step~1000):LPIPS 0.424(≪Bridge 0.509),SSIM 0.215(<Bridge);
+  - **平衡点(step~2000,1-NFE):SSIM 0.2554 / PSNR 13.59 / LPIPS 0.4429 —— 三项同时 ≥ Bridge**(SSIM +0.006、PSNR +0.04、LPIPS −0.066),且用 1/4 NFE;
+  - 晚期(step5000):SSIM 0.302 / PSNR 14.26(**远超** Bridge 0.249/13.55)代价是 LPIPS 0.665(比 Bridge 差,过度模糊追 MSE)。
+- **结论:APTD 赢**。best-val 按 SSIM → 0.302 vs 0.249(+21%,稳健,出噪声);按 LPIPS → 0.424 vs 0.509(−17%);存在 step~2000 平衡点三项同胜。**Bridge 的工作点落在 APTD 可达前沿内部(被支配)。** R63 消融已证是 warp+残差分解使之可能(warpres>direct/residual/warp)。
+- **诚实点**:① step2000 的 SSIM/PSNR 优势小(n=54 噪声内,需 bootstrap),LPIPS 优势稳健;② 晚训 LPIPS 退化 = 模型学会模糊刷 MSE → best-val 应按平衡/感知准则选,或加一个轻感知项(标准训练成分,非 novelty)把 SSIM+LPIPS 同时按住;③ flow_scale 0.15≈0.3,非关键杠杆;④ APTD x0/1NFE vs Bridge velocity/4NFE,参数化不同(R63 内部消融是单因子受控)。
+- **下一步**:① 取 step~2000 平衡点 + bootstrap CI 出最终主表;② 可选加轻感知项保住 LPIPS;③ 叠 PMOS 第二模块。
+- **产物**:runs/aptd_long_fs{015,030}(各 5 ckpt+轨迹)。
+
 ## 2026-06-30 — 第 63 轮：APTD 实现 + 四模式消融 —— 分解结构成立(LPIPS 赢),SSIM/PSNR 暂未超 Bridge
 
 - **实现**:aptd_model.py(WarpResidualHead 四模式 direct/residual/warp/warpres + APTDNet 复用 SCDiT backbone,x0 端点参数化,零初始化→起步=术前)+ train_aptd.py(span 损失化简为 α 加权端点 + L_end + L_smooth(φ) + L_res(R);1/4-NFE 评估;augment 已开)。

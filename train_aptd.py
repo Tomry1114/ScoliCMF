@@ -52,6 +52,7 @@ def main():
     ap.add_argument("--lambda_smooth", type=float, default=0.05)
     ap.add_argument("--lambda_res", type=float, default=0.02)
     ap.add_argument("--save_step", type=int, default=500)
+    ap.add_argument("--flow_scale", type=float, default=0.3)
     a = ap.parse_args()
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     cfg = load_config(os.path.join(HOME, a.cfg)); H, W = cfg["data"]["size_h"], cfg["data"]["size_w"]
@@ -59,7 +60,7 @@ def main():
     mf = SourceAnchoredMeanFlow(gamma=gamma, sigma_m=sm); path = mf.path
     cfg["model"]["xpre_mode"] = "full"
     backbone = build_model(cfg, H, W).to(dev)
-    model = APTDNet(backbone, a.mode).to(dev)
+    model = APTDNet(backbone, a.mode, flow_scale=a.flow_scale).to(dev)
     nP = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("mode=%s trainable=%.2fM" % (a.mode, nP / 1e6), flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-2)

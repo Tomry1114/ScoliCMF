@@ -142,3 +142,9 @@
 - 结论:**warpres 三项全模式最好**(分解成立);R_new 关键(warp-only LPIPS 差 0.494→加 R 0.422);warp 头有贡献(vs residual)。
 - vs Bridge:**LPIPS 大幅赢**(0.422 vs 0.509),**SSIM/PSNR 暂未超**(0.221 vs 0.249)= perceptual–distortion 权衡,被 identifiability 放大。confound:APTD 仅 1200 步 vs Bridge 5000、x0/1NFE vs velocity/4NFE、flow_scale 可能偏大。
 - 下一步:warpres 训 5000 步+调 flow_scale/smooth+bootstrap,看 SSIM 能否追平;否则按 LPIPS+诚实权衡叙事+PMOS 副模块。
+
+## 更新 2026-06-30 R64 — APTD warpres 5000步:翻盘,Pareto-支配 Bridge
+- 轨迹(1NFE,fs0.15≈0.3):step1000 0.215/12.3/0.424 → 2000 0.255/13.6/0.443 → 5000 0.302/14.26/0.665。Bridge 0.249/13.55/0.509。
+- **单模型沿感知-失真前沿移动,Bridge 被 Pareto-支配**:best-SSIM 0.302 vs 0.249(+21%),best-LPIPS 0.424 vs 0.509,step~2000 平衡点三项同胜(且 1/4 NFE)。
+- 诚实:step2000 SSIM/PSNR 优势小(需 bootstrap),LPIPS 稳健;晚训 LPIPS 退化=学会模糊刷 MSE,best-val 按平衡/感知选或加轻感知项;flow_scale 非关键。
+- 下一步:step~2000 + bootstrap 出主表;可选轻感知项;叠 PMOS。
