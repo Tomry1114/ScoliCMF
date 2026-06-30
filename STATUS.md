@@ -199,3 +199,8 @@
 - **设计澄清(重要)**:ADOC 清理的是训练监督目标=离线预处理;推理时生成器只吃 x_pre,不调用 C_ψ → **无"在线清理"需求 → per-pair 优化(更准、无域差)才是 ADOC 的天然且更好实现;C_ψ 网络既更弱又非必需**,"可部署"卖点不成立。
 - **决定**:ADOC 实现 = per-pair 优化(R70/R71 已统计确证)。C_ψ 留作记录(若论文要"学习式校正器"叙事,可从 per-pair gold 参数蒸馏 C_ψ,但属可选 polish)。
 - **产物**:adoc_net.py / train_adoc_net.py / runs/adoc/cpsi.pt / clean_*_net.pt。
+
+## 更新 2026-06-30 R73 — 移除 ADOC 网络版 C_ψ(确认非必需后清理)
+- 按 R72 结论(C_ψ 网络既更弱于 per-pair 又非必需:ADOC 是离线目标清理,推理不调用校正器),删除 adoc_net.py / train_adoc_net.py 及产物 runs/adoc/cpsi.pt、clean_*_net.pt、adoc_net.out。
+- **ADOC 唯一实现 = per-pair 优化**(adoc_clean.py,R70/R71 已 bootstrap 统计确证)。代码库不再保留弱/冗余的网络分支。
+- 不影响任何已确证结论:APTD(train_aptd.py)+ ADOC per-pair(adoc_clean.py + train_aptd_adoc.py)两模块完整且各自 CI 排除 0。
