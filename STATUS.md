@@ -204,3 +204,11 @@
 - 按 R72 结论(C_ψ 网络既更弱于 per-pair 又非必需:ADOC 是离线目标清理,推理不调用校正器),删除 adoc_net.py / train_adoc_net.py 及产物 runs/adoc/cpsi.pt、clean_*_net.pt、adoc_net.out。
 - **ADOC 唯一实现 = per-pair 优化**(adoc_clean.py,R70/R71 已 bootstrap 统计确证)。代码库不再保留弱/冗余的网络分支。
 - 不影响任何已确证结论:APTD(train_aptd.py)+ ADOC per-pair(adoc_clean.py + train_aptd_adoc.py)两模块完整且各自 CI 排除 0。
+
+## 更新 2026-06-30 R74 — ADOC 独立性 2×2 + 几何/光度拆分 + 中心保护(三个承重消融)
+审稿视角补强:此前只证 "ADOC 帮 APTD",未证 "ADOC 独立于 APTD"。新增三实验。
+- **新代码**:adoc_variants.py(参数化 cleaner:--geo/--photo/--center none|gauss|strong)、train_2x2.py(统一 x0 trainer,{direct|warpres}×{raw|任意clean},每 ckpt 同时评 canonical+raw 帧)、gate_geophoto.py、boot_independence.py、recompute_diag.py。
+- **Exp1 独立性 2×2(全 canonical 帧,配对 bootstrap 2000):** direct(普通x0Bridge) raw 0.4025 → ADOC **0.4467**,dSSIM **+0.0443**[.0382,.0504]/dPSNR +1.55/dLPIPS −0.0335 **全 sig**;APTD(warpres) raw 0.4234 → ADOC 0.4413,dSSIM +0.0180[.0122,.0238]/dPSNR +1.34/dLPIPS −0.0084 全 sig。**x0Bridge+ADOC>x0Bridge 成立 ⟹ ADOC 独立于 APTD、是通用采集归一化(对无-warp Bridge 增益 +0.044 还大于对 APTD 的 +0.018,因 APTD warp 已吸收部分几何采集变化)。**
+- **Exp2 几何 vs 光度(固定 raw-warpres,换评测帧):** raw 0.3018 → geo-only 0.3271(+0.025,share 21%) → photo-only 0.4150(+0.113,share 93%) → full 0.4234。**增益主要来自光度归一化** ⟹ **叙事改为 acquisition normalization(光度为主轴),不可重点宣称 source-frame geometric canonicalization**;full(geo+photo)仍最优,几何在光度之上有小增益且最护中央。
+- **Exp3 中心保护(per-pair cleaning 诊断,val;central_change_true=0.219):** PRESERVED(中央术后改变保留率) none **0.772** < gauss(当前) 0.797 < strong **0.814**;周边对齐 L1 none 0.1592(最差) > gauss 0.1575 ≈ strong 0.1576。**无保护抹掉 23% 中央手术信号且周边对齐还更差 ⟹ 中心保护必要;当前 gauss 偏保守,strong 更优(可升级)。**
+- **诚实**:① 已知 H 缩放笔误已修(recompute_diag.py 重算正确归一化,PRESERVED 比值本就不受影响);② 跨格比较统一在 canonical 帧(R70 口径,论文需论证此评测口径);③ Exp2/Exp3 目前是 eval-only/cleaning-side 门 + Exp1 全训练,若要论文级完整表可再训 generator on geo/photo/none/strong 目标(可选)。
