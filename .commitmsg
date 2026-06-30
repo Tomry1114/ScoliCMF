@@ -1,22 +1,17 @@
-feat(R64): APTD warpres 5000-step long run -- turnaround, Pareto-dominates the Bridge
+feat(R65): PMOS module implemented -- v1 prototype collapse, fixed (L_div + diverse init + harder tau)
 
-Two trajectories (warpres, 5000 steps, A40; flow_scale 0.15 ~ 0.3 identical), 1-NFE:
-  step 1000  SSIM 0.215 PSNR 12.3 LPIPS 0.424
-  step 2000  SSIM 0.255 PSNR 13.6 LPIPS 0.443
-  step 3000  SSIM 0.285 PSNR 14.1 LPIPS 0.517
-  step 5000  SSIM 0.302 PSNR 14.3 LPIPS 0.665
-Bridge ref (s2_base best-val, velocity/4NFE): SSIM 0.249 / PSNR 13.55 / LPIPS 0.509.
+pmos_model.py (PMOSNet: shared APTD backbone + K prototype embeddings each modulating the
+warp+residual head -> K candidate post-ops; init from APTD warpres step_2000) + train_pmos.py
+(soft-min set loss + usage balance; eval best-of-K vs proto0).
 
-A single APTD model traverses the perceptual-distortion frontier; the Bridge operating
-point is Pareto-DOMINATED. best-SSIM 0.302 vs 0.249 (+21%, robust); best-LPIPS 0.424 vs
-0.509 (-17%); a balanced point (~step 2000, 1-NFE) beats Bridge on ALL THREE simultaneously
-(SSIM 0.255 / PSNR 13.59 / LPIPS 0.443) at 1/4 the NFE. R63 ablation showed the warp+residual
-decomposition is what enables this.
+v1 (pmos_K4, K=4, tau=0.05, no L_div, zero-init proto) COLLAPSED: best-of-K == proto0 every
+step (SSIM 0.293->0.307, LPIPS 0.63->0.66), usage=[54,0,0,0], yet training qbar uniform
+[.25,.25,.25,.25] -> the K prototypes degenerated to identical functions, best-of-K zero gain.
+Classic multiple-choice-learning collapse. Cause: missing explicit diversity term (was in the
+spec, I omitted it) + zero-init (start identical) + tau too soft. NOT a PMOS-infeasibility (R62
+gate proved coverable discrete modes, oracle best-of-K EV 0.21-0.28).
 
-Honest: step-2000 SSIM/PSNR margins are small (n=54, need bootstrap), LPIPS win robust; late
-training over-blurs (LPIPS degrades chasing MSE) so best-val should use a balanced/perceptual
-criterion or a light perceptual term; flow_scale not a key lever; APTD x0/1NFE vs Bridge
-velocity/4NFE (R63 internal ablation is the single-factor control).
-
-Next: pick ~step-2000 operating point + bootstrap CIs for the final table; optional light
-perceptual term to hold SSIM+LPIPS together; then add PMOS as the second module.
+Fix (v2 pmos_K4b): light L_div (pairwise output-L1 hinge, margin 0.06, lambda 0.3) + diverse
+proto init (proto0=base, rest N(0,0.1)) + tau 0.05->0.02. Re-running 2500 steps. Gate: usage
+spreads + best-of-K >> proto0 -> PMOS works; else image-level headroom too small -> lead with
+APTD, report PMOS as honest weak/negative.

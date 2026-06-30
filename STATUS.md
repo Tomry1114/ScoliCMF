@@ -148,3 +148,9 @@
 - **单模型沿感知-失真前沿移动,Bridge 被 Pareto-支配**:best-SSIM 0.302 vs 0.249(+21%),best-LPIPS 0.424 vs 0.509,step~2000 平衡点三项同胜(且 1/4 NFE)。
 - 诚实:step2000 SSIM/PSNR 优势小(需 bootstrap),LPIPS 稳健;晚训 LPIPS 退化=学会模糊刷 MSE,best-val 按平衡/感知选或加轻感知项;flow_scale 非关键。
 - 下一步:step~2000 + bootstrap 出主表;可选轻感知项;叠 PMOS。
+
+## 更新 2026-06-30 R65 — PMOS 实现:v1 原型塌缩,修复重跑中
+- pmos_model.py+train_pmos.py(共享 APTD backbone+K 原型→K 候选,soft-min 集合损失,best-of-K eval)。
+- v1(K=4,tau0.05,无 L_div,零初始化)塌缩:best-of-K==proto0,usage=[54,0,0,0]→原型退化相同。
+- 修复 v2:加 L_div(hinge margin0.06)+proto 多样化init(proto0=base)+tau0.02。重跑 pmos_K4b。
+- 门:usage 散开+best-of-K>proto0→成立;否则图像层 headroom 太小,APTD 为主+PMOS 弱/负结果。

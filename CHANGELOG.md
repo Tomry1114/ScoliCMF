@@ -2,6 +2,16 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 65 轮：PMOS 第二模块实现 —— v1 原型塌缩,加 L_div+多样化init+硬分配修复重跑
+
+- **实现**:pmos_model.py(PMOSNet:共享 APTD backbone + K 个原型嵌入分别调制 warp+残差头 → K 候选术后图;从 APTD warpres step_2000 初始化)+ train_pmos.py(soft-min 集合损失 L_set + 均衡 L_bal,eval best-of-K vs proto0)。
+- **v1(pmos_K4,K=4,tau=0.05,无 L_div,proto 零初始化)= 塌缩**:best-of-K==proto0 每步相等(SSIM 0.293→0.307,LPIPS 0.63→0.66),usage=[54,0,0,0],但训练 qbar=[.25,.25,.25,.25] 均匀 → **K 原型退化成完全相同函数**,best-of-K 零增益。= multiple-choice learning 经典塌缩。
+- **根因**:① 缺显式多样性项 L_div(用户原 spec 有,我漏了)→ 对称损失无破对称压力;② proto 零初始化 → 起步即相同;③ tau=0.05 太软 → 梯度平摊不逼专精。**非 PMOS 不可行**(R62 门已证残差有可覆盖离散模态,oracle best-of-K EV 0.21–0.28)。
+- **修复(v2 pmos_K4b)**:加轻 L_div(成对输出 L1 hinge,margin0.06,λ0.3)+ proto 多样化初始化(proto0=base,其余 N(0,0.1))+ tau 0.05→0.02(更硬分配)。重跑 2500 步。
+- **判读门**:usage 散开(不再 [54,0,0,0])+ best-of-K 显著 > proto0 → PMOS 成立;若仍塌缩或 best-of-K≈proto0 → headroom 在图像层太小,论文以 APTD 为主、PMOS 报诚实负/弱结果。
+- **诚实**:多样性是双刃(用户提醒"diversity 不能当主指标,否则生成不真实差异"),L_div 保持轻;best-of-K 是 oracle 指标,需 reliability 层兜。
+- **产物**:pmos_model.py / train_pmos.py;runs/pmos_K4(塌缩)、pmos_K4b(修复中)。
+
 ## 2026-06-30 — 第 64 轮：APTD warpres 5000 步长训 —— 翻盘,Pareto-支配 Bridge(揭示感知-失真前沿)
 
 - **两条轨迹(warpres,5000 步,A40 i64m1tga40u,flow_scale 0.15 / 0.3 几乎一致)**,1-NFE:
