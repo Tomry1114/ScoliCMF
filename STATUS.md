@@ -164,3 +164,8 @@
 - asw_gate.py:分段仿射铰接 warp 残差 0.46–0.58(只解释 42–54%),远不如自由稠密 0.18(82%),加节段几乎不改善(K4→17 0.576→0.464)。
 - 脊柱术前→术后形变非轴向刚性链可表达(侧弯横向+胸廓+缩放);ASW 干净低维结构化 warp 不成立(精度代价太大,会欠拟合)。砍。
 - 下一步:换方向找第二模块(constructive 思路:加入缺失的手术意图作控制输入)。
+
+## 更新 2026-06-30 R68 — Diffeomorphic 前置门红灯 + 第二模块搜索的诚实评估
+- diffeo_gate.py:diffeomorphic SVF 残差 0.34/LPIPS 0.55,远差于自由位移 0.18/0.40;自由 warp 折叠仅 0.76%(本就近似微分同胚)。微分同胚约束有代价、无收益。砍。
+- **第二模块累计 4 次未成**:PMOS(弱,headroom 小)、ASW(铰接太强)、SIC(条件生成无新意,用户否)、Diffeomorphic(约束有代价)。**共同根:APTD 的自由 warp 已近最优地捕获了可预测几何,剩余=identifiability-limited。** 干净的、能抬指标的、正交 novel 第二模块,headroom 已被 APTD 吃掉。
+- **战略路口(待用户定)**:① APTD + identifiability 分析作两个 co-贡献(诚实,MIA 够);② 第二模块换"不同 KIND"——标定不确定性/可靠性图(我们有 identifiability 量化可验标定),不靠抬 SSIM;③ realism 模块(已知技术+loss-y,新意弱)。
