@@ -169,3 +169,12 @@
 - diffeo_gate.py:diffeomorphic SVF 残差 0.34/LPIPS 0.55,远差于自由位移 0.18/0.40;自由 warp 折叠仅 0.76%(本就近似微分同胚)。微分同胚约束有代价、无收益。砍。
 - **第二模块累计 4 次未成**:PMOS(弱,headroom 小)、ASW(铰接太强)、SIC(条件生成无新意,用户否)、Diffeomorphic(约束有代价)。**共同根:APTD 的自由 warp 已近最优地捕获了可预测几何,剩余=identifiability-limited。** 干净的、能抬指标的、正交 novel 第二模块,headroom 已被 APTD 吃掉。
 - **战略路口(待用户定)**:① APTD + identifiability 分析作两个 co-贡献(诚实,MIA 够);② 第二模块换"不同 KIND"——标定不确定性/可靠性图(我们有 identifiability 量化可验标定),不靠抬 SSIM;③ realism 模块(已知技术+loss-y,新意弱)。
+
+## 更新 2026-06-30 R69 — ADOC 前置门强通过(第二模块方向找到)
+- **ADOC=Acquisition-Disentangled Outcome Calibration**:正交于 APTD(改监督目标非生成器),x_post^obs=A_ν(x_post^canon),剥离受限采集因素(小仿射+光度,主动保护手术矫形区,禁自由 dense)→ 更纯净的源帧术后目标。可独立加在普通 x0 Bridge 上。
+- **gate(adoc_gate.py,严格受限,无自由 dense)**:对 APTD step_2000 的 val 预测 x̂ 对齐观测 x_post:
+  - 仅平移+缩放:SSIM +0.028、LPIPS −0.006,SSIM↑ 100%;
+  - 小仿射+光度:**SSIM +0.142(0.281→0.423)、LPIPS −0.038,两项 100% 一致**;典型 |dx|0.020 |dy|0.028 |θ|1.5°。
+- **判读:强通过**(远超阈值 SSIM0.01/LPIPS0.02,54 例全一致)→ "预测 vs 术后"误差中很大一块是全局采集偏差(位姿+曝光/对比),非内容错 = R64 后期模糊拟合的那部分错误监督 → ADOC 值得建。
+- **诚实**:① 光度分量(a·x^γ+b)可能贡献大头(SSIM 对亮度/对比敏感),几何(位姿)约 +0.03–0.05,两者都是真实采集因素;② gate 把 x_post 对齐到 x̂(略偏favorable),真正判据是"生成器对 ADOC-清理目标 vs raw x_post 训练后端点是否更好";③ 受限仿射无法吸收局部脊柱矫形,故未偷掉手术变化。
+- **下一步**:建 ADOC(自监督预训采集校正器 C_ψ:L_param+L_inv;中心抑制 W_acq 保护脊柱;stop-grad)→ 用清理目标重训 APTD,比 raw-target 端点。
