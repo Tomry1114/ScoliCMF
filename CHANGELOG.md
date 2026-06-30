@@ -2,6 +2,20 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-06-30 — 第 66 轮：PMOS v2(修复后)= 弱/负结果 —— 塌缩破但多样性拖垮质量
+
+- **v2(pmos_K4b,K=4,tau0.02,L_div margin0.06 λ0.3,proto 多样化init)**:
+  | step | usage | best-of-K SSIM | proto0 SSIM | LPIPS(best) |
+  |---|---|---|---|---|
+  | 1000 | [54,0,0,0] | 0.2556 | 0.2556 | 0.622 |
+  | 1500 | [34,0,1,19] | 0.2424 | 0.2409 | 0.630 |
+  | 2000 | [12,0,1,41] | 0.2401 | 0.2324 | 0.630 |
+  | 2500 | [3,0,1,50] | 0.2407 | 0.2276 | 0.630 |
+- **判读**:① 修复奏效——原型分化(usage [54,0,0,0]→[3,0,1,50]),best-of-K > proto0(+0.013 SSIM)→ 集合确覆盖一点模态;② **但代价是质量下降**:SSIM 全程下滑(best-of-K 0.256→0.241、proto0 0.256→0.228),且 best-of-K 0.241 < APTD 起点 0.255;LPIPS 全程 0.63(从 raw step_2000 偏模糊处初始化,未改善);原型 1 全程未用(残留半塌缩)。
+- **结论**:PMOS 的 set-valued headroom(R62 门 0.21–0.28)在**图像层太小**,强行 L_div 制造多样性会拖垮质量,**净结果不如 APTD**。= 用户警告的"diversity 当主指标→不真实差异"应验。
+- **下一步候选**:① 干净最后尝试——**冻结 APTD backbone+head(proto0≡已验证 APTD,best-of-K 必 ≥ APTD)只训 K 原型嵌入** + 从锐利 APTD step_1000(LPIPS0.42)init → best-of-K 是否净加;② 收手,论文以 APTD 单模块为主,PMOS 报 honest 弱/负结果或砍。待用户拍板。
+- **产物**:runs/pmos_K4(v1 塌缩)、pmos_K4b(v2 弱)。
+
 ## 2026-06-30 — 第 65 轮：PMOS 第二模块实现 —— v1 原型塌缩,加 L_div+多样化init+硬分配修复重跑
 
 - **实现**:pmos_model.py(PMOSNet:共享 APTD backbone + K 个原型嵌入分别调制 warp+残差头 → K 候选术后图;从 APTD warpres step_2000 初始化)+ train_pmos.py(soft-min 集合损失 L_set + 均衡 L_bal,eval best-of-K vs proto0)。

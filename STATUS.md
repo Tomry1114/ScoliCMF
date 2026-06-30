@@ -154,3 +154,8 @@
 - v1(K=4,tau0.05,无 L_div,零初始化)塌缩:best-of-K==proto0,usage=[54,0,0,0]→原型退化相同。
 - 修复 v2:加 L_div(hinge margin0.06)+proto 多样化init(proto0=base)+tau0.02。重跑 pmos_K4b。
 - 门:usage 散开+best-of-K>proto0→成立;否则图像层 headroom 太小,APTD 为主+PMOS 弱/负结果。
+
+## 更新 2026-06-30 R66 — PMOS v2 修复后=弱/负结果(塌缩破但多样性拖垮质量)
+- v2(pmos_K4b):原型分化(usage [54,0,0,0]→[3,0,1,50])、best-of-K>proto0(+0.013),但 SSIM 全程下滑(0.256→0.241)、低于 APTD 起点 0.255,LPIPS 0.63 未改善。
+- 结论:set-valued headroom 图像层太小,L_div 强制多样性拖垮质量,净不如 APTD。
+- 下一步:①冻结 backbone+head 只训原型(best-of-K 必≥APTD)从 step_1000 init;②收手,APTD 主+PMOS 弱/负。待拍板。
