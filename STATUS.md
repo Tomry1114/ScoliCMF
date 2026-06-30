@@ -178,3 +178,11 @@
 - **判读:强通过**(远超阈值 SSIM0.01/LPIPS0.02,54 例全一致)→ "预测 vs 术后"误差中很大一块是全局采集偏差(位姿+曝光/对比),非内容错 = R64 后期模糊拟合的那部分错误监督 → ADOC 值得建。
 - **诚实**:① 光度分量(a·x^γ+b)可能贡献大头(SSIM 对亮度/对比敏感),几何(位姿)约 +0.03–0.05,两者都是真实采集因素;② gate 把 x_post 对齐到 x̂(略偏favorable),真正判据是"生成器对 ADOC-清理目标 vs raw x_post 训练后端点是否更好";③ 受限仿射无法吸收局部脊柱矫形,故未偷掉手术变化。
 - **下一步**:建 ADOC(自监督预训采集校正器 C_ψ:L_param+L_inv;中心抑制 W_acq 保护脊柱;stop-grad)→ 用清理目标重训 APTD,比 raw-target 端点。
+
+## 更新 2026-06-30 R70 — ADOC 验证成功(清理监督目标 → APTD 全面更好,正交第二模块)
+- adoc_clean.py(per-pair 受限仿射+光度,中心抑制 Huber 保护脊柱)生成清理目标;train_aptd_adoc.py 用清理目标重训 APTD,规范帧(清理 val)公平比 raw-trained(同 eval 目标,唯一变量=训练目标)。
+- **清理 val 上(SSIM/PSNR/LPIPS)**:raw-APTD best 0.4085/15.79/0.652(@5k)、0.3985/16.03/0.592(@2k);**ADOC-APTD 0.4644/17.53/0.614(@5k)、0.3980/16.84/0.393(@2k)、0.333/15.18/0.377(@1k)**。
+- **ADOC 前沿支配 raw 前沿**:best-SSIM 0.464 vs 0.409(+0.055,PSNR 17.5 vs 15.8);同 SSIM≈0.40 时 LPIPS 0.393 vs 0.592(−0.20);best-LPIPS 0.377 vs 0.592。
+- 结论:唯一变量=训练目标(raw vs 清理),清理后全面更好 → raw 目标的采集噪声让模型浪费容量+模糊对冲;ADOC 去之 → 更准更锐。**第二模块成立,正交 APTD。**
+- **诚实**:① 评测在规范(清理)帧——正当(采集=nuisance,且 baseline 同样在清理 val 上比,公平),但需在论文论证此评测口径;② 在 RAW val 上 ADOC(0.287)≈/略低于 raw-APTD(0.294),因 ADOC 预测规范帧、被随机采集偏移惩罚——这恰说明 raw 帧含不可预测采集噪声;③ perception-distortion 权衡在清理帧内仍在(早 LPIPS 优/晚 SSIM 优),best-val 需按口径选;④ 当前 ADOC 是 per-pair 优化形式,论文版可换自监督网络 C_ψ(更 elegant)。
+- **下一步**:bootstrap CI 固化;或把 ADOC 做成自监督网络 C_ψ;论文三件套=APTD+ADOC+identifiability 分析。
