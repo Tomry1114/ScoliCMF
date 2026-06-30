@@ -192,3 +192,10 @@
 - **表1 APTD@2000 vs Bridge(raw 帧)**:SSIM 0.2554 vs 0.2490 Δ+0.0063[+0.0017,+0.0112]✅;LPIPS 0.4429 vs 0.5090 Δ−0.0661[−0.0724,−0.0601]✅;PSNR 打平(含0)。→ APTD 同时显著胜 SSIM+LPIPS。
 - **表2 ADOC@5000 vs raw-APTD@5000(规范帧,均 raw 权重)**:SSIM 0.4413 vs 0.4085 Δ+0.033[+.026,+.039]✅;PSNR 17.38 vs 15.79 Δ+1.59[+1.24,+1.97]✅;LPIPS 0.624 vs 0.652 Δ−0.028[−.036,−.020]✅。→ ADOC 三项全部显著胜出。
 - **结论:APTD(显著胜 Bridge,SSIM+LPIPS)+ ADOC(规范帧三项全显著胜 raw-target)统计确证。** 余:评测口径论证(ADOC)、单 split 小数据、perception-distortion 权衡选点;aptd_adoc 未存 ema(表2用 raw model,口径一致)。
+
+## 更新 2026-06-30 R72 — ADOC 网络版 C_ψ:部分有效但弱于 per-pair + 设计澄清(网络非必需)
+- adoc_net.py(AcquisitionCorrector C_ψ:成对图→8 受限采集参数,零初始化=恒等)+ train_adoc_net.py(自监督:对单张随机扰动→重建校正;再在真实对上生成 cleaned + 对比 per-pair gold)。
+- 结果:|C_ψ_clean − per-pair gold|=0.117;中心抑制对齐到术前 L1 raw 0.1524 → C_ψ 0.1299 → per-pair 0.1118。**C_ψ 部分有效但明显弱于 per-pair**(sim-to-real 域差:自监督同内容,真实对含手术内容差扰动估计)。
+- **设计澄清(重要)**:ADOC 清理的是训练监督目标=离线预处理;推理时生成器只吃 x_pre,不调用 C_ψ → **无"在线清理"需求 → per-pair 优化(更准、无域差)才是 ADOC 的天然且更好实现;C_ψ 网络既更弱又非必需**,"可部署"卖点不成立。
+- **决定**:ADOC 实现 = per-pair 优化(R70/R71 已统计确证)。C_ψ 留作记录(若论文要"学习式校正器"叙事,可从 per-pair gold 参数蒸馏 C_ψ,但属可选 polish)。
+- **产物**:adoc_net.py / train_adoc_net.py / runs/adoc/cpsi.pt / clean_*_net.pt。
