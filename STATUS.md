@@ -186,3 +186,9 @@
 - 结论:唯一变量=训练目标(raw vs 清理),清理后全面更好 → raw 目标的采集噪声让模型浪费容量+模糊对冲;ADOC 去之 → 更准更锐。**第二模块成立,正交 APTD。**
 - **诚实**:① 评测在规范(清理)帧——正当(采集=nuisance,且 baseline 同样在清理 val 上比,公平),但需在论文论证此评测口径;② 在 RAW val 上 ADOC(0.287)≈/略低于 raw-APTD(0.294),因 ADOC 预测规范帧、被随机采集偏移惩罚——这恰说明 raw 帧含不可预测采集噪声;③ perception-distortion 权衡在清理帧内仍在(早 LPIPS 优/晚 SSIM 优),best-val 需按口径选;④ 当前 ADOC 是 per-pair 优化形式,论文版可换自监督网络 C_ψ(更 elegant)。
 - **下一步**:bootstrap CI 固化;或把 ADOC 做成自监督网络 C_ψ;论文三件套=APTD+ADOC+identifiability 分析。
+
+## 更新 2026-06-30 R71 — bootstrap CI:两个模块统计确证(配对差 CI 排除 0)
+- boot_eval.py(2000 重采样,配对差 CI)。
+- **表1 APTD@2000 vs Bridge(raw 帧)**:SSIM 0.2554 vs 0.2490 Δ+0.0063[+0.0017,+0.0112]✅;LPIPS 0.4429 vs 0.5090 Δ−0.0661[−0.0724,−0.0601]✅;PSNR 打平(含0)。→ APTD 同时显著胜 SSIM+LPIPS。
+- **表2 ADOC@5000 vs raw-APTD@5000(规范帧,均 raw 权重)**:SSIM 0.4413 vs 0.4085 Δ+0.033[+.026,+.039]✅;PSNR 17.38 vs 15.79 Δ+1.59[+1.24,+1.97]✅;LPIPS 0.624 vs 0.652 Δ−0.028[−.036,−.020]✅。→ ADOC 三项全部显著胜出。
+- **结论:APTD(显著胜 Bridge,SSIM+LPIPS)+ ADOC(规范帧三项全显著胜 raw-target)统计确证。** 余:评测口径论证(ADOC)、单 split 小数据、perception-distortion 权衡选点;aptd_adoc 未存 ema(表2用 raw model,口径一致)。
