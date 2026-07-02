@@ -30,3 +30,4 @@ baseline_orig/__pycache__/
 *.bak
 *.out
 .commitmsg
+labels_pilot*.json

@@ -212,3 +212,71 @@
 - **Exp2 几何 vs 光度(固定 raw-warpres,换评测帧):** raw 0.3018 → geo-only 0.3271(+0.025,share 21%) → photo-only 0.4150(+0.113,share 93%) → full 0.4234。**增益主要来自光度归一化** ⟹ **叙事改为 acquisition normalization(光度为主轴),不可重点宣称 source-frame geometric canonicalization**;full(geo+photo)仍最优,几何在光度之上有小增益且最护中央。
 - **Exp3 中心保护(per-pair cleaning 诊断,val;central_change_true=0.219):** PRESERVED(中央术后改变保留率) none **0.772** < gauss(当前) 0.797 < strong **0.814**;周边对齐 L1 none 0.1592(最差) > gauss 0.1575 ≈ strong 0.1576。**无保护抹掉 23% 中央手术信号且周边对齐还更差 ⟹ 中心保护必要;当前 gauss 偏保守,strong 更优(可升级)。**
 - **诚实**:① 已知 H 缩放笔误已修(recompute_diag.py 重算正确归一化,PRESERVED 比值本就不受影响);② 跨格比较统一在 canonical 帧(R70 口径,论文需论证此评测口径);③ Exp2/Exp3 目前是 eval-only/cleaning-side 门 + Exp1 全训练,若要论文级完整表可再训 generator on geo/photo/none/strong 目标(可选)。
+
+## 更新 2026-07-01 R75 — 二号模块候选预验:Plan-Marginalized/PC-SRO/DC-MF 三个 idea 被证据否决
+- 用户毙 ADOC 后连续预验三个二号模块候选(全 eval-only,现有 APTD ckpt):
+- **gate_dist.py**(分布/响应类):Gate A 术前 kNN 术后发散 cond/global=0.99/0.96 → 术前几乎不约束术后结局(印证 EV_res≈0);Gate B best-of-10 仅 +0.008 SSIM、注噪只毁质量 → 无可捡多样性。**PC-SRO 与 Plan-Marginalized 都撞 identifiability 墙,放弃。**
+- **gate_dcmf.py**(自适应 NFE):1/2/4 步 SSIM=0.3018/0.3014/0.2977(1 步最好);Spearman(defect,真实误差)+0.511 但 Spearman(defect,拆分受益)**−0.293**、高-defect 分位负收益 → 核心假设证伪;GT-oracle 上界仅 +0.005 SSIM 且 avgNFE 2.30(更贵)。**无质量/效率奖品,放弃。**
+- **两口干井**:(1) 术前→术后可预测结局结构;(2) 多步→精度。落这两族的模块都会失败。
+- **未被否定的方向**:结构化新内容(钉棒)渲染保真(有现成残差门可验)/ 或把第二贡献重定为 identifiability 天花板分析(我们证据已很强)。
+
+## 更新 2026-07-01 R76 — ONOP 预验不过关(第 5 个二号模块被否)
+- ONOP(几何保持流形投影校正): Gate1 rho_N=0.82-0.88(APTD 误差 85% 非几何, 稳健), 但 oracle 用真值=恒等式假象不算数; Gate2(小 patch score) raw 帧最好 LPIPS -0.008(线 -0.03)、SSIM 平, ONOP≈unproj(投影贡献≈0); Gate3 |mean(d)|/|d|=0.55 主要修光度=ADOC 争议 => 判停.
+- **五个二号模块候选全否**(ADOC 毙 / PC-SRO / Plan-Marginalized / DC-MF / ONOP). 统一发现: APTD 已提尽可约信号, 残差被患者特异不可预测内容(identifiability)主导.
+- **战略拐点**: 建议第二贡献从"再造一个生成模块"转向 (a) identifiability 天花板分析(证据链已很强), 或 (b) defect 可靠性/不确定性估计(DC-MF Spearman(defect,真误差)=0.51 是全程唯一正信号). 最后一个未验模块=结构化植入物(但很可能同撞 identifiability 墙).
+
+## 更新 2026-07-01 R77 — LOSA 预验不过关(第 6 个二号模块被否;栽在自设 Gate 7)
+- LOSA(纵向可观测子空间, 冻结 AlexNet+线性 CCA): Gate A AUC 0.792/null 0.448(子空间真实但弱, Recall@1 0.06); **Gate 7 判停**: periphery-only AUC 0.798 >= spine-only 0.790 => 信号是周边/采集 shortcut 非脊柱解剖; Gate B 名义 headroom 但被 shortcut 子空间+生成域偏移污染(Spearman 0.24).
+- **六个二号模块候选全否**(ADOC/PC-SRO/Plan-Marginalized/DC-MF/ONOP/LOSA). 六次便宜门累计 <2 小时, 省了六次昂贵 build.
+- **强烈建议锁定**: APTD(方法) + identifiability 天花板分析(6 探针证据链) + defect 免训练逐例可靠性估计(Spearman(defect,真误差)=0.51). 三者互证、不可被"凑模块"诟病、基本无需再训练.
+
+## 更新 2026-07-01 R78 — SPPC 预验不过关(第 7 个二号模块被否)
+- SPPC(屏蔽泊松耦合两 checkpoint, 无训练): perception-distortion 前沿真实; 但条件2 决定性失败——中段前沿**平凡线性混合比 SPPC 低 0.02-0.03 LPIPS**, 且只有线性混合(非 SPPC)能支配 step2000 点. 根因: checkpoint 差别是模糊程度非正确互补高低频.
+- **七个二号模块候选全否**(ADOC/PC-SRO/Plan-Marginalized/DC-MF/ONOP/LOSA/SPPC). 七次便宜门累计仍 <3 小时.
+- 副产品(可用): checkpoint 线性混合 a~0.5 给支配单点的操作点(trivial 模型平均, 报操作点用, 非贡献).
+- **锁定建议不变且更强**: APTD + identifiability 天花板分析 + defect 免训练可靠性估计.
+
+## 更新 2026-07-01 R79 — RC-MF 预验不过关(第 8 个二号模块被否)
+- RC-MF(流映射与粗粒化对易, 图像空间零训练代理门): 跨-ckpt Pearson(E_comm,LPIPS)=0.778 表面过, 但是**训练时间混淆**(两者都随步单调); **逐例 ρ(E_comm,LPIPS)≈0** => 因果机制病例级证伪; E_comm 绝对量~5% 太小解释不了模糊. 前提(模糊=跨尺度失配)不成立.
+- **八个二号模块候选全否**(ADOC/PC-SRO/Plan-Marginalized/DC-MF/ONOP/LOSA/SPPC/RC-MF). 晚期模糊反复被证=条件均值/identifiability 泛化地板, 非可修算子/机制缺陷.
+- nugget: E_comm 随训练升 4.6x 可作 MeanFlow 训练动力学的诊断观察(非模块).
+- **锁定建议(第 8 次重申)**: APTD + 可预测性天花板分析 + defect 可靠性. 证据已压倒性.
+
+## 更新 2026-07-01 R80 — GC-MF 预验不过关(第 9 个二号模块被否;估计误差轴也测掉)
+- GC-MF(规范协变, 零训练 Reynolds gate): Gate A E_G/E_interp ratio 2.28(<3x), 逐例 ρ(E_G,err)=-0.17(反相关=良性), **E_G train 0.199≈val 0.200**(无有限样本签名)=> 直接证伪"攻估计误差"论点; Gate B Reynolds=TTA(SSIM+0.011/LPIPS+0.013 沿前沿移动+40%光度)非贡献.
+- **九个二号模块候选全否**(ADOC/PC-SRO/Plan-Marginalized/DC-MF/ONOP/LOSA/SPPC/RC-MF/GC-MF). 连"估计误差 vs Bayes error"这条最后的概念不同轴也已测掉.
+- **锁定建议(第 9 次)**: APTD + 可预测性天花板分析 + defect 可靠性. 证据压倒性.
+
+## 更新 2026-07-01 R81 — IC-MF Gate A+C:泄漏证实但非瓶颈,天花板结论被加固(第 10 个模块被否)
+- 用户抓到真实代码问题(训练桥 t->1 时 SNR->inf, source 端泄漏 delta; train_aptd.py 未修 R48 泄漏). 我"已到天花板"claim 有未验漏洞——测之.
+- Gate A: 解析 sigma/alpha 当前 t=0.999->0.003(泄漏最大); probe R^2 中段 t=0.9/0.95=0.92/0.89(严重泄漏)证实前提.
+- Gate C(4x3000 matched, 1-NFE source-only raw val): current 0.2847/0.5271; **ic 0.2836/0.5181(≈current=>IC 路径无用)**; ic_src 0.2908/0.5567; endpoint 0.2907/0.5698. **ic_src≈endpoint(增益纯来自多监督 source-only 非 IC 机制)+LPIPS 更差=前沿移动**.
+- 结论: 泄漏真实但**非瓶颈**; source-only 受 identifiability 限制. IC-MF 非模块. **但加固天花板**: leakage-free 训练落同一处 => 排除"天花板=训练捷径假象". 用户质疑把核心结论从"可能有漏洞"变"有对照站得住".
+- **十个二号模块候选全否**. 天花板分析(② 贡献)现在多一个关键对照.
+
+### R82 — OC-PMF (候选 #11, 否) — 首个"优化器"类想法
+- gate_ocpmf.py: 从 step2000 出发 80 步真投影梯度(TRAIN 训 / VAL 评). B=OC-PMF(G=I,约束 LPIPS 下降); C=朴素 L=D+λP.
+- **B 与 C 走同一条 (SSIM,LPIPS) 前沿**(B 0.2509/0.4169 与 C-λ1 0.2536/0.4197 互不支配)=> ε-约束自然梯度投影相对"把 LPIPS 加进 loss"零增益(MOO 定理: ε-约束≡加权和,同一 Pareto 前沿).
+- "固定 distortion 降 LPIPS" 只一阶成立且**泄漏**: 小 lr LPIPS 不动 / 大 lr SSIM 崩. 最好情形仅**平手一行线性混合**(0.2554/0.4368≈0.4370),无前沿突破.
+- **首个有定理支撑的否定**: 换度量/ε-约束只改轨迹与速率,不改可达集; 可达集被 identifiability 天花板锁死. **优化器类别是最后一格,现已封闭**. 二号模块搜索覆盖 data/target/model/inference/optimization 全空间,一致撞墙.
+- **十一否. 强烈建议 LOCK**: APTD + 可预测性天花板分析(10 探针+IC 泄漏对照+OC-PMF 定理) + defect 免训练可靠性.
+
+### R83 — SC-FGO (候选 #12, 否) — 首个"架构/inductive-bias"类想法
+- 前提=可预测长程冠状耦合存在且当前未建模. gate_scfgo.py 在中线 Dc(y) 上 held-out ridge 直测(不训练,CPU).
+- R2: POINT 0.430 / LOCAL 0.466 / GLOBAL 0.450 / SHUFFLE 0.454. **长程增益 -0.016; shuffle 对照 -0.004 => 远处行零信息**.
+- 冠状形变 ~43% 可预测但**纯局部**; 长程信号经验上不存在; 可预测部分平滑+局部=已在 warp. SC-FGO 打空.
+- **礼物**: 天花板分析得到非零拆解 = 可预测≈43%冠状矫正(平滑/局部/在warp内) + 不可预测=残差新内容+plan矫正幅度(EV_res~0).
+- **十二否, 覆盖 data/target/model/inference/optimization/architecture 全空间. 强烈 LOCK**.
+
+### R84 — SGOS (候选 #13, 否) — 首个"改变信息集"类, 测得最彻底(3 gate)
+- I=(X_pre, A) 稀疏目标点. GateA 稀疏中线 warp: 连 dense-oracle 都不改善(真实≈shuffled)=> 冠状位置轴零图像信息.
+- GateB 几何天花板(最优稠密2D warp): SSIM 0.4262(远超 x_pre 0.1996 与 APTD 0.30)但 LPIPS 平(0.428->0.412)=> warp 修几何补不了外观.
+- **GateC 决定性(稀疏可恢复性)**: K=1 .2102 / K=5 .2251 / K=10 .2346 / K=24 .2517 / dense(288) .4258. **headroom 需 ~288 DOF; K<=10 稀疏点击 SSIM~0.23 < 无控制 APTD 0.30**.
+- **否, 两独立理由**: (1)可恢复形变高维, 稀疏点击非充分低带宽代理; (2)dense-oracle warp LPIPS 平 => 术后内容非几何, 空间控制表达不了.
+- **价值**: 用数据回击"为何不加稀疏交互控制"审稿问. 十三否. QES 可 gate 但低 EV. **强烈 LOCK**.
+
+### R85 — 第二 novelty 广域调研(5 方向)+ 2 免费 gate
+- deep-research 流水线失败→改 5 并行研究 agent(带引用+自我对抗). 排序: SB/OT/equivariance/physics 守恒=LOW(任务失配); 微分同胚=单独LOW/耦合bridge才MED-HIGH; conformal=MED-HIGH.
+- **Gate A folding**: APTD warp φ 折叠率 0.0000%(step2000&5000, 0/54)=> φ 已微分同胚 => 微分同胚保证 novelty **被预注册gate毙**.
+- **Gate B conformal**: Spearman(d,e)=.516; split-CP 覆盖 .932@.1/.817@.2(贴nominal=有效); Mondrian 低分歧界仅紧8%; 选择接受半数 +0.02 SSIM => **有效但效率平庸**(信号弱+天花板致误差大界松).
+- **结论**: 任务结构(小光滑微分同胚形变+非守恒+不对称+不可辨识)系统性废掉高级物理/几何先验(佐证天花板). 唯一可证不降点幸存=conformal(安全次要点非headline). 加厚路径=σ_m>0 重训→conformal逐像素不确定性图.
