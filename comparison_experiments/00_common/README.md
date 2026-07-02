@@ -1,0 +1,1 @@
+# Shared infra: export_data.py (3 data views) + eval_compare.py (SSIM/PSNR/LPIPS + bootstrap vs ScoliCMF) + make_table.py. Every method drops pred_val.pt [54,1,480,240] in [0,1] RAW frame here-compatible.
