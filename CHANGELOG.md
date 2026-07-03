@@ -766,3 +766,11 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 - Both injection forms now tested with clean controls: global FiLM (dc=g(s)) AND feature-dependent factorized routing (dh=sum q_k A_k(h)) => BOTH null. Rui's scope caveat (couldn't refute routing w/o implementing it) now addressed: true routing implemented, still null.
 - Verdict (well-scoped, controlled): correct phenotype state gives NO measurable gain over max-wrong state, in both global-FiLM and feature-dependent factorized low-rank routing, with fixed max-dist derangement control + frozen-APTD residual protocol. v4 linear p=0.033 whisper does not materialize in the real model.
 - Remaining honest bounds: low-dim VLM phenotype (loc+dir), thin/imbalanced data (191 confident), rank-8/last-4-blocks. Framework: Analyze front-end VALIDATED; Routing mechanism CONFIRMED no usable gain. => controlled negative = ceiling evidence + interpretability for the paper.
+
+## R97 — Flip-fixed true routing: small CONSISTENT matched>derange (P0 was masking signal)
+- After P0 flip fix + joint experts + Hungarian derange (self-pair 0%, dir-changed 92%, jointcat 98%):
+  R0 (router only) step3k: matched 0.3018 vs derange 0.3010 (+0.0008). R1 (router+head) step3k: matched 0.3035 vs derange 0.3026 (+0.0009); matched_head TRENDS UP 0.3028->0.3032->0.3035 while derange_head FLAT 0.3027->0.3026.
+- vs pre-fix R95 (matched==derange 0.3013/0.3013): the flip bug WAS masking the direction signal (Rui right). Now matched consistently > derange, gap training-driven in R1.
+- BUT magnitude tiny (+0.0009 SSIM) and LPIPS worse (matched_head 0.690->0.706) => frontier move, marginal, consistent with v4 linear whisper (+0.011 delta-PCA R2). Not a clean win.
+- NOT concludable yet: (A) need multi-seed R1 to test if +0.0009 is significant vs noise (n=54). (B) untested amplifiers: 3.2 spatial masks (map thoracic->upper / lumbar->lower tokens), 5 richer condition (severity/correction magnitude).
+- Status: state carries a small, real, previously-masked signal; marginal in magnitude. Next: multi-seed significance; optional spatial-mask routing.
