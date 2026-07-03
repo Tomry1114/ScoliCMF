@@ -56,17 +56,24 @@ class LowRankAdapter(nn.Module):
         nn.init.zeros_(self.up.weight)
     def forward(self,h): return self.up(F.silu(self.down(self.norm(h))))
 class FactorizedStateRouter(nn.Module):
-    def __init__(self,dim,rank=8):
+    def __init__(self,dim,gh,gw,rank=8,spatial=False):
         super().__init__(); self.location=nn.ModuleList([LowRankAdapter(dim,rank) for _ in range(3)])
         self.direction=nn.ModuleList([LowRankAdapter(dim,rank) for _ in range(2)])
         self.joint=nn.ModuleList([LowRankAdapter(dim,rank) for _ in range(6)])
+        self.spatial=spatial
+        if spatial:  # smooth vertical partition-of-unity mask: thoracic=upper, TL=mid, lumbar=lower
+            T=gh*gw; u=(torch.arange(T)//gw).float()/(gh-1)
+            cen=torch.tensor([0.25,0.5,0.75]); m=torch.softmax(-((u[None,:]-cen[:,None])**2)/0.03,dim=0)  # (3,T)
+            self.register_buffer("mask",m)
     def forward(self,h,ql,qd):
         d=torch.zeros_like(h)
-        for k,a in enumerate(self.location): d=d+ql[:,k,None,None]*a(h)
+        for k,a in enumerate(self.location):
+            g=ql[:,k,None,None]*a(h); d=d+(g*self.mask[k][None,:,None] if self.spatial else g)
         for k,a in enumerate(self.direction): d=d+qd[:,k,None,None]*a(h)
         for i in range(3):
             for j in range(2):
-                w=(ql[:,i]*qd[:,j]); d=d+w[:,None,None]*self.joint[i*2+j](h)
+                w=(ql[:,i]*qd[:,j])[:,None,None]*self.joint[i*2+j](h)
+                d=d+(w*self.mask[i][None,:,None] if self.spatial else w)
         return h+d
 def ff_routed(self,z_t,r,t,x_pre):
     x=self.x_embedder(self._x_in(z_t,x_pre))+self.pos_embed
@@ -102,7 +109,7 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--state",required=True,choices=["matched","derange"])
     ap.add_argument("--out",required=True); ap.add_argument("--steps",type=int,default=3000); ap.add_argument("--bs",type=int,default=8)
     ap.add_argument("--lr",type=float,default=5e-4); ap.add_argument("--rank",type=int,default=8); ap.add_argument("--save_step",type=int,default=1000)
-    ap.add_argument("--unfreeze",default="none",choices=["none","head"]); ap.add_argument("--seed",type=int,default=0)
+    ap.add_argument("--unfreeze",default="none",choices=["none","head"]); ap.add_argument("--spatial",type=int,default=0); ap.add_argument("--seed",type=int,default=0)
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed); g=torch.Generator(device=dev).manual_seed(a.seed)
     cfg=load_config(os.path.join(HOME,"configs/s2_base.yaml")); H,W=cfg["data"]["size_h"],cfg["data"]["size_w"]
     cfg["model"]["xpre_mode"]="full"; mf=SourceAnchoredMeanFlow(gamma=cfg["meanflow"]["gamma"],sigma_m=cfg["meanflow"]["sigma_m"]); path=mf.path
@@ -110,7 +117,7 @@ def main():
     ck=torch.load(os.path.join(HOME,"runs/aptd_long_fs015/ckpts/step_5000.pt"),map_location=dev)
     for p,e in zip(model.parameters(),ck["ema"]): p.data.copy_(e.to(dev))
     D=bb.pos_embed.shape[-1]; nb=len(bb.blocks)
-    bb.state_routers=nn.ModuleDict({str(i):FactorizedStateRouter(D,a.rank) for i in range(nb-4,nb)}).to(dev)
+    bb.state_routers=nn.ModuleDict({str(i):FactorizedStateRouter(D,bb.gh,bb.gw,a.rank,bool(a.spatial)) for i in range(nb-4,nb)}).to(dev)
     bb.forward_features=types.MethodType(ff_routed,bb)
     for p in model.parameters(): p.requires_grad=False
     tparams=[p for r in bb.state_routers.values() for p in r.parameters()]
@@ -118,7 +125,7 @@ def main():
         for p in model.head.parameters(): p.requires_grad=True;
         tparams=tparams+list(model.head.parameters())
     for p in tparams: p.requires_grad=True
-    print("state=%s unfreeze=%s trainable=%.4fM scipy=%s"%(a.state,a.unfreeze,sum(p.numel() for p in tparams)/1e6,HAS_SCIPY),flush=True)
+    print("state=%s unfreeze=%s spatial=%d trainable=%.4fM scipy=%s"%(a.state,a.unfreeze,a.spatial,sum(p.numel() for p in tparams)/1e6,HAS_SCIPY),flush=True)
     opt=torch.optim.AdamW(tparams,lr=a.lr,weight_decay=1e-2); ema=[p.detach().clone() for p in tparams]
     def emaup(d=0.999):
         for e,p in zip(ema,tparams): e.mul_(d).add_(p.detach(),alpha=1-d)
