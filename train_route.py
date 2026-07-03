@@ -34,6 +34,14 @@ def build_states():
     return st
 STATE=build_states(); SDIM=5
 ALL_STATES=np.stack(list(STATE.values()))
+def build_derange():
+    """Fixed max-distance derangement over TRAIN states only (each used once, pi(i)!=i)."""
+    tr=[l.strip() for l in open(os.path.join(HOME,"splits/train.txt")) if l.strip() and l.strip() in STATE]
+    S=np.stack([STATE[s] for s in tr]); mu=S.mean(0); _,_,Vt=np.linalg.svd(S-mu,full_matrices=False)
+    proj=(S-mu)@Vt[0]; order=np.argsort(proj); N=len(order); perm=np.empty(N,int)
+    for k in range(N): perm[order[k]]=order[(k+N//2)%N]        # pair with far half => large state distance
+    return {tr[i]: S[perm[i]].astype(np.float32) for i in range(N)}
+DERANGE=build_derange()
 class CondWithState(nn.Module):
     def __init__(self, base, sdim, D):
         super().__init__(); self.base=base
@@ -66,7 +74,7 @@ def evaluate(model,path,cfg,H,W,dev,nfe):  # ALWAYS matched state
     return float(torch.cat(SS).mean()),float(torch.cat(PS).mean()),float(torch.cat(LP).mean())
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--state",required=True,choices=["matched","shuffle"])
+    ap.add_argument("--state",required=True,choices=["matched","shuffle","derange"])
     ap.add_argument("--out",required=True); ap.add_argument("--steps",type=int,default=5000)
     ap.add_argument("--bs",type=int,default=8); ap.add_argument("--lr",type=float,default=2e-4)
     ap.add_argument("--flow_scale",type=float,default=0.15); ap.add_argument("--save_step",type=int,default=1000)
@@ -92,6 +100,7 @@ def main():
     for step in range(1,a.steps+1):
         xp,xq,stm=next(it); xp,xq=xp.to(dev),xq.to(dev); B=xp.shape[0]
         if a.state=="matched": stv=state_of(stm,dev)
+        elif a.state=="derange": stv=torch.tensor(np.stack([DERANGE.get(s,np.zeros(SDIM,np.float32)) for s in stm]),device=dev)  # fixed max-dist wrong pairing
         else: stv=torch.tensor(ALL_STATES[rng.randint(0,len(ALL_STATES),B)],device=dev)  # random draw
         model.bb.cond.state=stv
         r,t=sample_rt(B,dev); eps=torch.randn_like(xp) if sm>0 else None
