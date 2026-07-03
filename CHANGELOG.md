@@ -774,3 +774,11 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 - BUT magnitude tiny (+0.0009 SSIM) and LPIPS worse (matched_head 0.690->0.706) => frontier move, marginal, consistent with v4 linear whisper (+0.011 delta-PCA R2). Not a clean win.
 - NOT concludable yet: (A) need multi-seed R1 to test if +0.0009 is significant vs noise (n=54). (B) untested amplifiers: 3.2 spatial masks (map thoracic->upper / lumbar->lower tokens), 5 richer condition (severity/correction magnitude).
 - Status: state carries a small, real, previously-masked signal; marginal in magnitude. Next: multi-seed significance; optional spatial-mask routing.
+
+## R99 — Spatial-mask routing x3 seeds: signal REAL+robust but tiny & injection-invariant
+- R1 (router+head) + spatial vertical masks (thoracic=upper/TL=mid/lumbar=lower), matched vs Hungarian-derange, seeds 0/1/2, step3000:
+  matched 0.3036/0.3035/0.3032 (mean 0.3034 sd 0.0002); derange 0.3031/0.3030/0.3027 (mean 0.3029 sd 0.0002). Per-seed gap = +0.0005 EXACTLY all 3 seeds (sd of arms 0.0002 << gap) => matched>derange statistically robust & reproducible.
+- Spatial mask did NOT amplify: FiLM 0 -> factorized +0.0009 -> spatial +0.0005. Three very different injection mechanisms all plateau at +0.0005..+0.0009 => injection is NOT the bottleneck; the low-dim phenotype condition is information-limited (derived from x_pre + ceiling).
+- Verdict: phenotype-state routing carries a SMALL, REAL, reproducible, injection-invariant conditional signal (+0.0005 SSIM, LPIPS slightly worse) - too small to be a metric-improving headline (reviewers won't accept), but a quantified/controlled ceiling evidence + interpretability result.
+- Only remaining lever = richer condition (VLM free-text: severity/Cobb/apex/curve-count/rotation) - still ceiling-bounded, bigger build. Injection engineering exhausted (cross-attn/warp-head/hypernet expected to stay ~+0.0005).
+- Recommend: either (1) accept "real but marginal" -> write paper (APTD + ceiling + Analyze interpretability + conformal), or (2) one last shot at rich-text condition. Do NOT invest more in injection variants.
