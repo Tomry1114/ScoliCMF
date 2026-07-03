@@ -782,3 +782,9 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 - Verdict: phenotype-state routing carries a SMALL, REAL, reproducible, injection-invariant conditional signal (+0.0005 SSIM, LPIPS slightly worse) - too small to be a metric-improving headline (reviewers won't accept), but a quantified/controlled ceiling evidence + interpretability result.
 - Only remaining lever = richer condition (VLM free-text: severity/Cobb/apex/curve-count/rotation) - still ceiling-bounded, bigger build. Injection engineering exhausted (cross-attn/warp-head/hypernet expected to stay ~+0.0005).
 - Recommend: either (1) accept "real but marginal" -> write paper (APTD + ceiling + Analyze interpretability + conformal), or (2) one last shot at rich-text condition. Do NOT invest more in injection variants.
+
+## R101 — route3 shared-basis transport router, R1 (unfreeze head) = CONFOUNDED (head bypass)
+- route3 (K=4 shared basis, real 6-dim joint votes, entropy conf, centering, adaptive Gaussian mask, transport-only, state dropout), R1 (router+head), matched vs Hungarian-derange, 3 seeds:
+  step1500 matched==derange SSIM 0.3027 (gap 0.0000 all seeds), LPIPS 0.697; step3000 SSIM 0.3033 (gap 0.0000), LPIPS 0.707.
+- matched==derange BYTE-IDENTICAL => state path COLLAPSED to zero (alpha~0). This is the router-bypass failure Rui warned about (pt9): unfreezing the head let the optimizer move along the perception-distortion frontier (SSIM +0.0015, LPIPS 0.663->0.707) WITHOUT opening the state path. So R1 is confounded by head fine-tuning; the LPIPS worsening is from head, NOT from routing residual => transport-only did not "fix" LPIPS here (LPIPS hit is a head-frontier move, unrelated).
+- Need R0 (frozen head, router-only) to isolate the shared-basis router: does the state path open when the head cannot bypass it? Launching route3 R0 matched/derange x3 seeds.
