@@ -1,0 +1,45 @@
+project:
+  name: "ScoliCMF"
+  image_save_path: "training_images"
+  checkpoint_path: "checkpoints"
+  log_file: "log.txt"
+
+data:
+  train_cond_root: "/data02/brats_folder/vq_data/train_vq/t2w"
+  train_target_root: "/data02/brats_folder/vq_data/train_vq/t2f"
+  test_cond_root: "/data02/brats_folder/vq_data/test_vq/t2w"       
+  test_target_root: "/data02/brats_folder/vq_data/test_vq/t2f"     
+  image_size: 256
+  data_channels: 1
+  cond_channels: 1
+  num_workers: 8
+
+model:
+  patch_size: 8
+  dim: 384
+  depth: 12
+  num_heads: 6
+  mlp_ratio: 4.0
+
+training:
+  n_steps: 500000
+  batch_size: 4
+  lr: 0.0001
+  weight_decay: 0.0
+  mixed_precision: "fp16"
+  log_step: 100
+  sample_step: 100
+  save_step: 50
+
+inference:                                                         # Added for testing
+  checkpoint: "checkpoints/step_latest.pt"                         # Default checkpoint
+  outdir: "infer_results"
+  sample_steps: 20
+  batch_size: 4
+  max_eval: 100
+
+meanflow:
+  flow_ratio: 0.75
+  time_dist: ["lognorm", -0.4, 1.0]
+  jvp_api: "autograd"
+  normalizer: ["minmax", null, null]
