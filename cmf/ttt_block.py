@@ -29,12 +29,13 @@ class TTT(nn.Module):
         qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
     """
 
-    def __init__(self, dim, num_heads, qkv_bias=True, **kwargs):
+    def __init__(self, dim, num_heads, qkv_bias=True, inner_lr=0.25, **kwargs):
 
         super().__init__()
         head_dim = dim // num_heads
         self.dim = dim
         self.num_heads = num_heads
+        self.inner_lr = inner_lr   # TTT inner-loop step (0=static SwiGLU+conv capacity control; 1.0=official)
 
         self.qkv = nn.Linear(dim, dim * 3 + head_dim * 3, bias=qkv_bias)
         self.w1 = nn.Parameter(torch.zeros(1, self.num_heads, head_dim, head_dim))
@@ -142,6 +143,8 @@ class TTT(nn.Module):
             rope (nn.Module, optional): Rotary Position Embedding
         """
         b, n, c = x.shape
+        assert n == h * w, f"TTT token/grid mismatch: N={n}, h*w={h*w}"
+        assert c % self.num_heads == 0, f"dim={c} must be divisible by num_heads={self.num_heads}"
         d = c // self.num_heads
 
         # Prepare q/k/v
@@ -158,8 +161,8 @@ class TTT(nn.Module):
         v2 = v2.reshape(b, h, w, d).permute(0, 3, 1, 2)
 
         # Inner training using (k, v)
-        w1, w2 = self.inner_train_simplified_swiglu(k1, v1, self.w1, self.w2)
-        w3 = self.inner_train_3x3dwc(k2, v2, self.w3, implementation='prod')
+        w1, w2 = self.inner_train_simplified_swiglu(k1, v1, self.w1, self.w2, lr=self.inner_lr)
+        w3 = self.inner_train_3x3dwc(k2, v2, self.w3, lr=self.inner_lr, implementation='prod')
 
         # Apply updated inner module to q
         x1 = (q1 @ w1) * F.silu(q1 @ w2)

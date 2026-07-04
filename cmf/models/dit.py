@@ -55,13 +55,13 @@ class TimestepEmbedder(nn.Module):
         return self.mlp(self.timestep_embedding(t * 1000, self.nfreq))
 
 class DiTBlock(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4.0, attn_type="vanilla", gh=0, gw=0):
+    def __init__(self, dim, num_heads, mlp_ratio=4.0, attn_type="vanilla", gh=0, gw=0, inner_lr=0.25):
         super().__init__()
         self.attn_type = attn_type; self.gh = gh; self.gw = gw
         self.norm1 = RMSNorm(dim)
         if attn_type == "ttt":
             from ttt_block import TTT
-            self.attn = TTT(dim, num_heads, qkv_bias=True)       # ViT^3 test-time-training attention
+            self.attn = TTT(dim, num_heads, qkv_bias=True, inner_lr=inner_lr)   # ViT^3 TTT mixer (configurable inner lr)
         else:
             self.attn = Attention(dim, num_heads, qk_norm=True)
         self.norm2 = RMSNorm(dim); self.mlp = Mlp(dim, int(dim * mlp_ratio))
@@ -84,7 +84,7 @@ class FinalLayer(nn.Module):
 
 class MFDiT(nn.Module):
     def __init__(self, img_size=(480, 240), patch_size=8, data_channels=1, cond_channels=1,
-                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, text=True, attn_type="vanilla"):
+                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, text=True, attn_type="vanilla", inner_lr=0.25):
         super().__init__()
         self.data_channels = data_channels; self.cond_channels = cond_channels
         self.in_channels = data_channels + cond_channels; self.out_channels = data_channels
@@ -96,7 +96,7 @@ class MFDiT(nn.Module):
         self.tr_gate = nn.Sequential(nn.SiLU(), nn.Linear(2 * dim, dim))
         self.t_embedder = TimestepEmbedder(dim); self.r_embedder = TimestepEmbedder(dim)
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=True)
-        self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw) for _ in range(depth)])
+        self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw, inner_lr) for _ in range(depth)])
         self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
         self.text = text; self.text_state = None
         if text:
