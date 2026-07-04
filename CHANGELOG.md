@@ -804,3 +804,12 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 
 ## R104 — New direction: original Conditional MeanFlow + ViT3 (TTT) + text
 - cmf/ = original ScoliCMF conditional MeanFlow (genuine velocity/JVP, noise->postop, FGA image cond) restored from share, generalized to non-square 480x240, + TEXT (phenotype) conditioning + ViT3 TTT attention (LeapLabTHU/ViTTT, CVPR26) as --attn ttt (drop-in, timm-free trunc_normal fix, manual attention for double-backward). train_cmf.py: --attn vanilla|ttt, --text on|off|shuffle. Running vanilla-vs-TTT (20k steps, text=on) comparison. Early: vanilla step4000 10NFE SSIM 0.1361/LPIPS 0.594 (noise->image harder than APTD source-anchored); TTT slower ~1.8x + oscillating loss.
+
+## R106 — ViT3 TTT vs vanilla attention in Conditional MeanFlow: TTT WINS + eta=0 control validates mechanism
+- 3-way (text=on, outer lr 1e-4, 10-NFE val SSIM), matched step:
+  step4000: vanilla 0.1361/LPIPS.5942 | TTT eta0 0.1412/.6019 | TTT eta0.25 0.1482/.5983
+  step8000: vanilla 0.1687/.4917 | TTT eta0 0.1603/.4869 | TTT eta0.25 0.1760/.4688
+- At step8000 TTT eta=0.25 BEATS vanilla on BOTH SSIM (0.176>0.169) and LPIPS (0.469<0.492). eta=0 (capacity-only SwiGLU+conv, no inner update) = 0.160 < vanilla 0.169 => the gain is NOT capacity; it's the ViT3 test-time online-update mechanism. Online-update margin (eta0.25 - eta0) grows: +0.007 (4000) -> +0.016 (8000).
+- vanilla full curve: 4k .1361 / 8k .1687 / 12k .1744 / 16k .1850 / 20k .1829 (LPIPS .594->.434); converges ~0.183/0.434.
+- Caveats: TTT ~1.8x slower/step; loss still spikes occasionally under MeanFlow JVP even at inner_lr=0.25 (mse spike to 51 at step6600, recovers; EMA eval clean). Rui's fixes applied: configurable inner_lr (0.25) + grid/dim asserts. No CPE (clean attn-vs-TTT control; ttt+cpe future ablation).
+- Setup: cmf/ = original ScoliCMF conditional MeanFlow (velocity/JVP, noise->postop, FGA image cond) + text (phenotype) cond + ViT3 TTT mixer (--attn ttt, --inner_lr). Need 12k/16k/20k matched to confirm TTT holds lead vs vanilla 0.185.
