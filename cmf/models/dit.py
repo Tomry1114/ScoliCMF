@@ -2,7 +2,8 @@
 generalized to NON-SQUARE (H,W), + TEXT (phenotype) conditioning added to the FGA cond vector c.
 Faithful to the original: c = (t_emb+r_emb) + gate*mean(cond_embedder(cond_img)) [+ text_adapter(s)]."""
 import math, numpy as np, torch, torch.nn as nn, torch.nn.functional as F
-TEXT_DIM = 6  # joint phenotype distribution (location x direction)
+NUM_REGIONS = 3     # thoracic / thoracolumbar / lumbar
+NUM_DIRECTIONS = 2  # image_left / image_right
 
 def modulate(x, scale, shift):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
@@ -103,10 +104,16 @@ class MFDiT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=True)
         self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw, inner_lr, cpe) for _ in range(depth)])
         self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
-        self.text = text; self.text_state = None
-        if text:
-            self.text_adapter = nn.Sequential(nn.Linear(TEXT_DIM, dim), nn.SiLU(), nn.Linear(dim, dim))
+        self.agent_condition = text; self.region_prob = None; self.direction_prob = None
+        if self.agent_condition:   # FACTORIZED phenotype embeddings (region x3, direction x2), soft-prob weighted
+            self.region_embedding = nn.Embedding(NUM_REGIONS, dim)
+            self.direction_embedding = nn.Embedding(NUM_DIRECTIONS, dim)
+            self.agent_adapter = nn.Sequential(nn.Linear(2 * dim, dim), nn.SiLU(), nn.Linear(dim, dim))
         self.initialize_weights()
+    def encode_agent_condition(self, region_prob, direction_prob):   # soft-weighted embedding lookup + fuse
+        region_emb = region_prob @ self.region_embedding.weight        # [B,3]@[3,D] -> [B,D]
+        direction_emb = direction_prob @ self.direction_embedding.weight  # [B,2]@[2,D] -> [B,D]
+        return self.agent_adapter(torch.cat([region_emb, direction_emb], dim=-1))
     def initialize_weights(self):
         def _init(m):
             if isinstance(m, nn.Linear):
@@ -119,8 +126,9 @@ class MFDiT(nn.Module):
             nn.init.constant_(b.adaLN_modulation[-1].weight, 0); nn.init.constant_(b.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0); nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.linear.weight, 0); nn.init.constant_(self.final_layer.linear.bias, 0)
-        if self.text:
-            nn.init.constant_(self.text_adapter[-1].weight, 0); nn.init.constant_(self.text_adapter[-1].bias, 0)  # start = image-only cond
+        if self.agent_condition:
+            nn.init.normal_(self.region_embedding.weight, std=0.02); nn.init.normal_(self.direction_embedding.weight, std=0.02)
+            nn.init.zeros_(self.agent_adapter[-1].weight); nn.init.zeros_(self.agent_adapter[-1].bias)  # start = image-only cond
     def unpatchify(self, x):
         c, p, gh, gw = self.out_channels, self.patch_size, self.gh, self.gw
         x = x.reshape(x.shape[0], gh, gw, p, p, c)
@@ -134,8 +142,8 @@ class MFDiT(nn.Module):
         cond_emb = self.cond_proj(self.cond_embedder(cond_img).mean(dim=1))
         gate = torch.sigmoid(self.tr_gate(torch.cat([p, q], dim=-1)))
         c = p + gate * cond_emb
-        if self.text and self.text_state is not None:
-            c = c + self.text_adapter(self.text_state)
+        if self.agent_condition and self.region_prob is not None and self.direction_prob is not None:
+            c = c + self.encode_agent_condition(self.region_prob, self.direction_prob)
         for blk in self.blocks:
             x_tokens = blk(x_tokens, c)
         return self.unpatchify(self.final_layer(x_tokens, c))

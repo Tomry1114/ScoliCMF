@@ -17,25 +17,34 @@ def _v4(x): return x.view(-1,1,1,1)
 HOME=os.path.expanduser("~/ScoliCMF"); ROOT=os.path.join(HOME,"data/Spine生成_Miccai数据集/train")
 LOCN=["thoracic","thoracolumbar","lumbar"]; DIRN=["image_left","image_right"]
 # ---- phenotype text (6-dim joint) ----
-def build_states():
-    q={}
+def build_states():   # FACTORIZED soft probs (region x3, direction x2) from the 7 votes
+    Qr={};Qd={}
     for l in open(os.path.join(HOME,"labels.json")):
         if not l.strip(): continue
         r=json.loads(l); vs=[v for v in r["votes"] if v and v[0]!="ERR" and v[0] in LOCN and v[1] in DIRN]
-        c=np.zeros(6)
-        for ln,dn in vs: c[LOCN.index(ln)*2+DIRN.index(dn)]+=1
-        q[r["stem"]]=(c/len(vs)).astype(np.float32) if len(vs)>0 else np.zeros(6,np.float32)
-    return q
-QJ=build_states(); TR=[l.strip() for l in open(os.path.join(HOME,"splits/train.txt")) if l.strip() and l.strip() in QJ]
-QBAR=np.mean([QJ[s] for s in TR],0).astype(np.float32)
-def derange():
-    S=np.stack([QJ[s] for s in TR]); D=np.abs(S[:,None]-S[None]).sum(-1); np.fill_diagonal(D,-1e9)
-    perm=linear_sum_assignment(-D)[1] if HAS else D.argmax(1); return {TR[i]:QJ[TR[perm[i]]] for i in range(len(TR))}
-DER=derange()
-def text_of(stems,dev,mode):
-    if mode=="off": return None
-    S=[(DER.get(s,QBAR) if mode=="shuffle" else QJ.get(s,QBAR))-QBAR for s in stems]
-    return torch.tensor(np.stack(S),device=dev)
+        rc=np.zeros(3);dc=np.zeros(2)
+        for ln,dn in vs: rc[LOCN.index(ln)]+=1; dc[DIRN.index(dn)]+=1
+        Qr[r["stem"]]=(rc/rc.sum()).astype(np.float32) if vs else np.zeros(3,np.float32)
+        Qd[r["stem"]]=(dc/dc.sum()).astype(np.float32) if vs else np.zeros(2,np.float32)
+    return Qr,Qd
+Q_REGION,Q_DIRECTION=build_states()
+TR=[l.strip() for l in open(os.path.join(HOME,"splits/train.txt")) if l.strip() and l.strip() in Q_REGION]
+REGION_PRIOR=np.mean([Q_REGION[s] for s in TR],0).astype(np.float32)
+DIRECTION_PRIOR=np.mean([Q_DIRECTION[s] for s in TR],0).astype(np.float32)
+def build_derangement(stems):   # Hungarian max-dist on joint [region|direction]; store the WRONG stem
+    S=np.stack([np.concatenate([Q_REGION[s],Q_DIRECTION[s]]) for s in stems])
+    D=np.abs(S[:,None]-S[None]).sum(-1); np.fill_diagonal(D,-1e9)
+    perm=linear_sum_assignment(-D)[1] if HAS else D.argmax(1)
+    return {stems[i]:stems[perm[i]] for i in range(len(stems))}
+DER=build_derangement(TR)
+def agent_condition_of(stems,dev,mode):   # -> (region_prob[B,3], direction_prob[B,2]) or (None,None)
+    if mode=="off": return None,None
+    rb=[];db=[]
+    for s in stems:
+        src=DER.get(s,s) if mode=="shuffle" else s
+        rb.append(Q_REGION.get(src,REGION_PRIOR)); db.append(Q_DIRECTION.get(src,DIRECTION_PRIOR))
+    return (torch.tensor(np.stack(rb),device=dev,dtype=torch.float32),
+            torch.tensor(np.stack(db),device=dev,dtype=torch.float32))
 # ---- data ----
 class Paired(Dataset):
     def __init__(self,split,H,W):
@@ -62,7 +71,7 @@ def sample(mf,model,cond,H,W,dev,steps):
 def evaluate(mf,model,H,W,dev,steps,text_mode):
     model.eval();SS=[];PS=[];LP=[]
     for cond,tgt,stm in loader("val.txt",H,W,6,False):
-        cond,tgt=cond.to(dev),tgt.to(dev); model.text_state=text_of(stm,dev,text_mode)
+        cond,tgt=cond.to(dev),tgt.to(dev); model.region_prob,model.direction_prob=agent_condition_of(stm,dev,text_mode)
         o=sample(mf,model,cond,H,W,dev,steps)
         SS.append(ssim(o,tgt).cpu());PS.append(psnr(o,tgt).cpu());LP.append(lpips_fn(o,tgt).cpu())
     model.train(); return float(torch.cat(SS).mean()),float(torch.cat(PS).mean()),float(torch.cat(LP).mean())
@@ -84,7 +93,7 @@ def main():
     it=cycle(loader("train.txt",H,W,a.bs,True)); model.train()
     for step in range(1,a.steps+1):
         cond,tgt,stm=next(it); cond,tgt=cond.to(dev),tgt.to(dev)
-        model.text_state=text_of(stm,dev,a.text)
+        model.region_prob,model.direction_prob=agent_condition_of(stm,dev,a.text)
         loss,mse=mf.loss(model,tgt,cond_img=cond)
         opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(),1.0); opt.step(); emaup()
         if step%200==0: log("step %5d loss %.4f mse %.5f"%(step,loss.item(),float(mse)))
