@@ -70,12 +70,12 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--out",required=True); ap.add_argument("--text",default="on",choices=["on","off","shuffle"])
     ap.add_argument("--steps",type=int,default=20000); ap.add_argument("--bs",type=int,default=6); ap.add_argument("--lr",type=float,default=1e-4)
     ap.add_argument("--nfe",type=int,default=10); ap.add_argument("--save_step",type=int,default=4000); ap.add_argument("--seed",type=int,default=0)
-    ap.add_argument("--attn",default="vanilla",choices=["vanilla","ttt"]); ap.add_argument("--inner_lr",type=float,default=0.25)
+    ap.add_argument("--attn",default="vanilla",choices=["vanilla","ttt"]); ap.add_argument("--inner_lr",type=float,default=0.25); ap.add_argument("--cpe",type=int,default=0)
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed)
     H,W=480,240
-    model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr).to(dev)
+    model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe)).to(dev)
     mf=MeanFlow(channels=1,image_size=H,normalizer=['mean_std',[0.5],[0.5]],flow_ratio=0.75,time_dist=['lognorm',-0.4,1.0])
-    print("CMF attn=%s inner_lr=%.2f text=%s trainable=%.2fM"%(a.attn,a.inner_lr,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
+    print("CMF attn=%s inner_lr=%.2f cpe=%d text=%s trainable=%.2fM"%(a.attn,a.inner_lr,a.cpe,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
     opt=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=0.0); ema=[p.detach().clone() for p in model.parameters()]
     def emaup(d=0.999):
         for e,p in zip(ema,model.parameters()): e.mul_(d).add_(p.detach(),alpha=1-d)

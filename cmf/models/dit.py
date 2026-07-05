@@ -55,9 +55,11 @@ class TimestepEmbedder(nn.Module):
         return self.mlp(self.timestep_embedding(t * 1000, self.nfreq))
 
 class DiTBlock(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4.0, attn_type="vanilla", gh=0, gw=0, inner_lr=0.25):
+    def __init__(self, dim, num_heads, mlp_ratio=4.0, attn_type="vanilla", gh=0, gw=0, inner_lr=0.25, cpe=False):
         super().__init__()
-        self.attn_type = attn_type; self.gh = gh; self.gw = gw
+        self.attn_type = attn_type; self.gh = gh; self.gw = gw; self.cpe_on = cpe
+        if cpe:
+            self.cpe = nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim)   # DiT^3 conditional positional encoding
         self.norm1 = RMSNorm(dim)
         if attn_type == "ttt":
             from ttt_block import TTT
@@ -67,6 +69,9 @@ class DiTBlock(nn.Module):
         self.norm2 = RMSNorm(dim); self.mlp = Mlp(dim, int(dim * mlp_ratio))
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 6 * dim))
     def forward(self, x, c):
+        if self.cpe_on:                                                            # DiT^3 CPE: x <- x + DWConv3x3(x)
+            B, N, C = x.shape
+            x = x + self.cpe(x.reshape(B, self.gh, self.gw, C).permute(0, 3, 1, 2)).flatten(2).transpose(1, 2)
         sh_a, sc_a, g_a, sh_m, sc_m, g_m = self.adaLN_modulation(c).chunk(6, dim=-1)
         hh = modulate(self.norm1(x), sc_a, sh_a)
         a = self.attn(hh, self.gh, self.gw) if self.attn_type == "ttt" else self.attn(hh)
@@ -84,7 +89,7 @@ class FinalLayer(nn.Module):
 
 class MFDiT(nn.Module):
     def __init__(self, img_size=(480, 240), patch_size=8, data_channels=1, cond_channels=1,
-                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, text=True, attn_type="vanilla", inner_lr=0.25):
+                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, text=True, attn_type="vanilla", inner_lr=0.25, cpe=False):
         super().__init__()
         self.data_channels = data_channels; self.cond_channels = cond_channels
         self.in_channels = data_channels + cond_channels; self.out_channels = data_channels
@@ -96,7 +101,7 @@ class MFDiT(nn.Module):
         self.tr_gate = nn.Sequential(nn.SiLU(), nn.Linear(2 * dim, dim))
         self.t_embedder = TimestepEmbedder(dim); self.r_embedder = TimestepEmbedder(dim)
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=True)
-        self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw, inner_lr) for _ in range(depth)])
+        self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw, inner_lr, cpe) for _ in range(depth)])
         self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
         self.text = text; self.text_state = None
         if text:
