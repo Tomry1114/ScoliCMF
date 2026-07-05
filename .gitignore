@@ -31,3 +31,4 @@ baseline_orig/__pycache__/
 *.out
 .commitmsg
 labels_pilot*.json
+compare_exp/*/repo/
