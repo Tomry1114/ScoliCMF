@@ -101,7 +101,7 @@ class MFDiT(nn.Module):
         self.gh, self.gw = self.x_embedder.gh, self.x_embedder.gw
         self.tr_gate = nn.Sequential(nn.SiLU(), nn.Linear(2 * dim, dim))
         self.t_embedder = TimestepEmbedder(dim); self.r_embedder = TimestepEmbedder(dim)
-        self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=True)
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=False)  # FIXED sincos (match official DiT3; avoid double-position overfit on 432 cases)
         self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw, inner_lr, cpe) for _ in range(depth)])
         self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
         self.agent_condition = text; self.region_prob = None; self.direction_prob = None
@@ -126,6 +126,9 @@ class MFDiT(nn.Module):
             nn.init.constant_(b.adaLN_modulation[-1].weight, 0); nn.init.constant_(b.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0); nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.linear.weight, 0); nn.init.constant_(self.final_layer.linear.bias, 0)
+        for b in self.blocks:                                  # zero-init CPE -> block starts at identity (like AdaLN-Zero)
+            if getattr(b, "cpe_on", False):
+                nn.init.zeros_(b.cpe.weight); nn.init.zeros_(b.cpe.bias)
         if self.agent_condition:
             nn.init.normal_(self.region_embedding.weight, std=0.02); nn.init.normal_(self.direction_embedding.weight, std=0.02)
             nn.init.zeros_(self.agent_adapter[-1].weight); nn.init.zeros_(self.agent_adapter[-1].bias)  # start = image-only cond

@@ -819,3 +819,8 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 - factorized text (region3+direction2 soft embeddings) gives NO gain even in this new framework (another ceiling data point; phenotype subset of x_pre).
 - CONCLUSION: best config = Conditional MeanFlow + ViT3 TTT-mixer (NO CPE, text optional/null). eta=0 control (R106) confirmed TTT online-update mechanism is the source of the (marginal, faster-converging) gain over vanilla, not capacity. CPE + text = honest negative ablations.
 - Created compare_exp/ scaffold (PLAN.md + eval_common.py + per-method dirs) for baseline comparison (Pix2Pix/CycleGAN/CUT/RegGAN/ResViT/SynDiff/BBDM/FlowMatching/MeanFlow/Ours).
+
+## R110 — Fix CPE + pos_embed (Rui diagnosis of why R109 CPE hurt)
+- R109 "CPE hurts" was CONFOUNDED by 2 impl deviations from official DiT3: (1) CPE Conv2d NOT zero-inited (my init only handled nn.Linear) => ungated nonzero CPE active from step 1, breaking initial~=identity (AdaLN-Zero property); (3) pos_embed requires_grad=True (trainable) while official is FIXED => double learnable position (abs-pos + CPE) can overfit imaging borders/crop/normalization on 432 cases.
+- FIX: zero-init all CPE convs (block starts at identity); pos_embed requires_grad=False (fixed sincos, match official). Verified: pos_embed frozen + all CPE convs zero + sincos set.
+- NOT retrained yet (Rui: fix first, no rush to train). Open architectural point (#2, may persist even after fix): CPE 3x3 dwconv is redundant with TTT's own case-adaptive dwconv branch; postop prediction is long-range not local, so extra local bias may not add info. Re-test ttt+cpe(fixed) vs ttt(frozen pos) will fairly settle whether official-style CPE helps.
