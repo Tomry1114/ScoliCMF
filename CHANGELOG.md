@@ -813,3 +813,9 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 - vanilla full curve: 4k .1361 / 8k .1687 / 12k .1744 / 16k .1850 / 20k .1829 (LPIPS .594->.434); converges ~0.183/0.434.
 - Caveats: TTT ~1.8x slower/step; loss still spikes occasionally under MeanFlow JVP even at inner_lr=0.25 (mse spike to 51 at step6600, recovers; EMA eval clean). Rui's fixes applied: configurable inner_lr (0.25) + grid/dim asserts. No CPE (clean attn-vs-TTT control; ttt+cpe future ablation).
 - Setup: cmf/ = original ScoliCMF conditional MeanFlow (velocity/JVP, noise->postop, FGA image cond) + text (phenotype) cond + ViT3 TTT mixer (--attn ttt, --inner_lr). Need 12k/16k/20k matched to confirm TTT holds lead vs vanilla 0.185.
+
+## R109 — full DiT3 (ttt+cpe) + factorized text: CPE HURTS, text NULL
+- ttt+cpe (TTT mixer + official CPE), text on vs off, step8000: no-text 0.1620/.5106 | text 0.1612/.5112 (SSIM identical, text no gain). Both BELOW vanilla (0.1687) and ttt-mixer (0.1760) => CPE hurts ~-0.014 SSIM (+LPIPS worse) on our small medical data. step4000: no-text .1265/.6315, text .1295/.6282 (early text +0.003, vanished by 8000).
+- factorized text (region3+direction2 soft embeddings) gives NO gain even in this new framework (another ceiling data point; phenotype subset of x_pre).
+- CONCLUSION: best config = Conditional MeanFlow + ViT3 TTT-mixer (NO CPE, text optional/null). eta=0 control (R106) confirmed TTT online-update mechanism is the source of the (marginal, faster-converging) gain over vanilla, not capacity. CPE + text = honest negative ablations.
+- Created compare_exp/ scaffold (PLAN.md + eval_common.py + per-method dirs) for baseline comparison (Pix2Pix/CycleGAN/CUT/RegGAN/ResViT/SynDiff/BBDM/FlowMatching/MeanFlow/Ours).
