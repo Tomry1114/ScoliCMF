@@ -824,3 +824,16 @@ SC-PGA 升级: heat-kernel → 显式带限投影 Π_low=U_low U_low^T; 动态�
 - R109 "CPE hurts" was CONFOUNDED by 2 impl deviations from official DiT3: (1) CPE Conv2d NOT zero-inited (my init only handled nn.Linear) => ungated nonzero CPE active from step 1, breaking initial~=identity (AdaLN-Zero property); (3) pos_embed requires_grad=True (trainable) while official is FIXED => double learnable position (abs-pos + CPE) can overfit imaging borders/crop/normalization on 432 cases.
 - FIX: zero-init all CPE convs (block starts at identity); pos_embed requires_grad=False (fixed sincos, match official). Verified: pos_embed frozen + all CPE convs zero + sincos set.
 - NOT retrained yet (Rui: fix first, no rush to train). Open architectural point (#2, may persist even after fix): CPE 3x3 dwconv is redundant with TTT's own case-adaptive dwconv branch; postop prediction is long-range not local, so extra local bias may not add info. Re-test ttt+cpe(fixed) vs ttt(frozen pos) will fairly settle whether official-style CPE helps.
+
+## R111 — Comparison baselines complete (MOTFM / I2SB / Palette) via eval_common
+All val(54), same eval_common (SSIM/PSNR/LPIPS, preds resized to 480x240):
+| method | SSIM | PSNR | LPIPS | training |
+|---|---|---|---|---|
+| copy-preop (floor) | 0.1996 | 11.11 | 0.4283 | - |
+| MOTFM | 0.2431 | 12.40 | 0.4223 | full 300ep (a800) |
+| I2SB | 0.2926 | 13.54 | 0.7258 | debug-chunked ~2800it, nfe=100 sample |
+| Palette | 0.2145 | 11.19 | 0.6089 | debug-chunked 120ep (CelebA finetune) |
+
+- MOTFM = best-balanced (beats floor on BOTH SSIM & LPIPS; best LPIPS). I2SB = best SSIM/PSNR but worst LPIPS (structure ok, perceptual artifacts). Palette = weakest (SSIM barely > floor, LPIPS worse than copy-preop).
+- CAVEATS (must report): (1) training-budget NOT matched - MOTFM got full training on a800; I2SB/Palette only debug-chunked (GPU-cluster crunch, 30-min windows, account-limited to 1 debug job) so undertrained; I2SB sampled at nfe=100 not 999. (2) "Ours" row still UNMEASURED through eval_common - the 0.182 was training-time eval; old TTT ckpt incompatible with current code (R108/R110); user deferred clean retrain.
+- Infra: MOTFM=scoliagent env+ControlNet mask=preop; I2SB=scoliagent (repo i2sb-env broke on user .condarc tsinghua conda-forge URL 'https//' missing-colon), ADM init, paired-mixture trick, DDP-skip + torchmetrics + cudnn-off patches, debug_loop.sh chunked resume; Palette=AgentOCR, CelebA-inpaint finetune, task=colorization fix (mask_image None crash), np.str fix, debug_loop.sh. All preds under compare_exp/0X/preds/, scored by eval_common.py.
