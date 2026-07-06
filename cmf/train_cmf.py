@@ -36,7 +36,9 @@ def build_derangement(stems):   # Hungarian max-dist on joint [region|direction]
     D=np.abs(S[:,None]-S[None]).sum(-1); np.fill_diagonal(D,-1e9)
     perm=linear_sum_assignment(-D)[1] if HAS else D.argmax(1)
     return {stems[i]:stems[perm[i]] for i in range(len(stems))}
-DER=build_derangement(TR)
+VAL_STEMS=[l.strip() for l in open(os.path.join(HOME,"splits/val.txt")) if l.strip() and l.strip() in Q_REGION]
+DER={**build_derangement(TR), **build_derangement(VAL_STEMS)}   # FIX2: derange val too (shuffle eval was silently matched on val)
+VAL_Z0=None   # FIX3: fixed per-stem val noise, set in main
 def agent_condition_of(stems,dev,mode):   # -> (region_prob[B,3], direction_prob[B,2]) or (None,None)
     if mode=="off": return None,None
     rb=[];db=[]
@@ -57,12 +59,12 @@ class Paired(Dataset):
     def __getitem__(self,i):
         s=self.stems[i]
         return self.tf(Image.open(self.pre[s]).convert("L")), self.tf(Image.open(self.post[s]).convert("L")), s
-def loader(split,H,W,bs,sh):
-    return DataLoader(Paired(split,H,W),batch_size=bs,shuffle=sh,num_workers=2,drop_last=sh)
+def loader(split,H,W,bs,sh,gen=None):
+    return DataLoader(Paired(split,H,W),batch_size=bs,shuffle=sh,num_workers=2,drop_last=sh,generator=gen)  # FIX3 own generator
 def psnr(a,b): return -10*torch.log10(((a-b)**2).mean(dim=(1,2,3)).clamp_min(1e-10))
 @torch.no_grad()
-def sample(mf,model,cond,H,W,dev,steps):
-    B=cond.shape[0]; z=torch.randn(B,1,H,W,device=dev); tv=torch.linspace(1,0,steps+1,device=dev)
+def sample(mf,model,cond,H,W,dev,steps,z0=None):
+    B=cond.shape[0]; z=z0.to(dev) if z0 is not None else torch.randn(B,1,H,W,device=dev); tv=torch.linspace(1,0,steps+1,device=dev)
     for i in range(steps):
         t=torch.full((B,),tv[i].item(),device=dev); r=torch.full((B,),tv[i+1].item(),device=dev)
         z=z-_v4(t-r)*model(z,t,r,cond)
@@ -72,7 +74,8 @@ def evaluate(mf,model,H,W,dev,steps,text_mode):
     model.eval();SS=[];PS=[];LP=[]
     for cond,tgt,stm in loader("val.txt",H,W,6,False):
         cond,tgt=cond.to(dev),tgt.to(dev); model.region_prob,model.direction_prob=agent_condition_of(stm,dev,text_mode)
-        o=sample(mf,model,cond,H,W,dev,steps)
+        z0=torch.cat([VAL_Z0[s] for s in stm],0)   # FIX3 fixed per-stem val noise
+        o=sample(mf,model,cond,H,W,dev,steps,z0=z0)
         SS.append(ssim(o,tgt).cpu());PS.append(psnr(o,tgt).cpu());LP.append(lpips_fn(o,tgt).cpu())
     model.train(); return float(torch.cat(SS).mean()),float(torch.cat(PS).mean()),float(torch.cat(LP).mean())
 def main():
@@ -82,6 +85,10 @@ def main():
     ap.add_argument("--attn",default="vanilla",choices=["vanilla","ttt"]); ap.add_argument("--inner_lr",type=float,default=0.25); ap.add_argument("--cpe",type=int,default=0)
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed)
     H,W=480,240
+    global VAL_Z0
+    g_val=torch.Generator().manual_seed(20260707)   # FIX3 fixed val noise shared across all models/modes
+    VAL_Z0={s:torch.randn(1,1,H,W,generator=g_val) for s in sorted(Paired("val.txt",H,W).stems)}
+    g_data=torch.Generator().manual_seed(a.seed+12345)   # FIX3 dataloader order independent of model-init RNG
     model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe)).to(dev)
     mf=MeanFlow(channels=1,image_size=H,normalizer=['mean_std',[0.5],[0.5]],flow_ratio=0.75,time_dist=['lognorm',-0.4,1.0])
     print("CMF attn=%s inner_lr=%.2f cpe=%d text=%s trainable=%.2fM"%(a.attn,a.inner_lr,a.cpe,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
@@ -90,7 +97,8 @@ def main():
         for e,p in zip(ema,model.parameters()): e.mul_(d).add_(p.detach(),alpha=1-d)
     odir=os.path.join(HOME,"runs",a.out,"ckpts"); os.makedirs(odir,exist_ok=True); logf=open(os.path.join(HOME,"runs",a.out,"log.txt"),"a")
     def log(s): print(s,flush=True);logf.write(s+"\n");logf.flush()
-    it=cycle(loader("train.txt",H,W,a.bs,True)); model.train()
+    mf.noise_gen=torch.Generator(device=dev).manual_seed(a.seed+777)   # FIX3 train-noise stream decoupled from model-init RNG
+    it=cycle(loader("train.txt",H,W,a.bs,True,gen=g_data)); model.train()
     for step in range(1,a.steps+1):
         cond,tgt,stm=next(it); cond,tgt=cond.to(dev),tgt.to(dev)
         model.region_prob,model.direction_prob=agent_condition_of(stm,dev,a.text)

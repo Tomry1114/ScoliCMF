@@ -20,12 +20,17 @@ class MeanFlow:
     ):
         self.channels = channels
         self.image_size = image_size
+        if isinstance(image_size, (tuple, list)):
+            self.height, self.width = image_size[0], image_size[1]
+        else:
+            self.height = self.width = image_size
         self.normer = Normalizer.from_list(normalizer)
         self.flow_ratio = flow_ratio
         self.time_dist = time_dist
 
         assert jvp_api in ['funtorch', 'autograd']
         self.jvp_api = jvp_api
+        self.noise_gen = None   # FIX3 optional generator for train noise
         if jvp_api == 'funtorch':
             self.jvp_fn = torch.func.jvp
             self.create_graph = False
@@ -65,7 +70,7 @@ class MeanFlow:
         t_ = rearrange(t, "b -> b 1 1 1").clone().detach()
         r_ = rearrange(r, "b -> b 1 1 1").clone().detach()
 
-        e = torch.randn_like(y)
+        e = torch.randn(y.shape, generator=self.noise_gen, device=y.device, dtype=y.dtype) if getattr(self,'noise_gen',None) is not None else torch.randn_like(y)
         y_norm = self.normer.norm(y)
 
         z = (1 - t_) * y_norm + t_ * e
@@ -103,7 +108,7 @@ class MeanFlow:
         cond_img = cond_img.to(device)
         B = cond_img.size(0)
 
-        z = torch.randn(B, self.channels, self.image_size, self.image_size, device=device)
+        z = torch.randn(B, self.channels, self.height, self.width, device=device)
         t_vals = torch.linspace(1.0, 0.0, sample_steps + 1, device=device)
 
         iterator = tqdm(range(sample_steps), desc="Sampling", dynamic_ncols=True) if show_progress else range(sample_steps)
@@ -132,7 +137,7 @@ class MeanFlow:
         model.eval()
         B = batch_size
 
-        z = torch.randn(B, self.channels, self.image_size, self.image_size, device=device)
+        z = torch.randn(B, self.channels, self.height, self.width, device=device)
         t_vals = torch.linspace(1.0, 0.0, sample_steps + 1, device=device)
 
         iterator = tqdm(range(sample_steps), desc="Sampling (uncond)", dynamic_ncols=True) if show_progress else range(sample_steps)

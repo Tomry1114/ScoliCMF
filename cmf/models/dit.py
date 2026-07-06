@@ -86,7 +86,7 @@ class FinalLayer(nn.Module):
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 2 * dim))
     def forward(self, x, c):
         sh, sc = self.adaLN_modulation(c).chunk(2, dim=-1)
-        return self.linear(modulate(self.norm_final(x), sh, sc))
+        return self.linear(modulate(self.norm_final(x), sc, sh))   # FIX1: modulate(x, scale, shift) was (shift, scale)
 
 class MFDiT(nn.Module):
     def __init__(self, img_size=(480, 240), patch_size=8, data_channels=1, cond_channels=1,

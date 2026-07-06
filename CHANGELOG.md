@@ -837,3 +837,12 @@ All val(54), same eval_common (SSIM/PSNR/LPIPS, preds resized to 480x240):
 - MOTFM = best-balanced (beats floor on BOTH SSIM & LPIPS; best LPIPS). I2SB = best SSIM/PSNR but worst LPIPS (structure ok, perceptual artifacts). Palette = weakest (SSIM barely > floor, LPIPS worse than copy-preop).
 - CAVEATS (must report): (1) training-budget NOT matched - MOTFM got full training on a800; I2SB/Palette only debug-chunked (GPU-cluster crunch, 30-min windows, account-limited to 1 debug job) so undertrained; I2SB sampled at nfe=100 not 999. (2) "Ours" row still UNMEASURED through eval_common - the 0.182 was training-time eval; old TTT ckpt incompatible with current code (R108/R110); user deferred clean retrain.
 - Infra: MOTFM=scoliagent env+ControlNet mask=preop; I2SB=scoliagent (repo i2sb-env broke on user .condarc tsinghua conda-forge URL 'https//' missing-colon), ADM init, paired-mixture trick, DDP-skip + torchmetrics + cudnn-off patches, debug_loop.sh chunked resume; Palette=AgentOCR, CelebA-inpaint finetune, task=colorization fix (mask_image None crash), np.str fix, debug_loop.sh. All preds under compare_exp/0X/preds/, scored by eval_common.py.
+
+## R112 — Fix 4 deterministic bugs (Rui code review of R111 main)
+1. FinalLayer shift/scale SWAPPED: modulate(x,scale,shift) but FinalLayer passed (shift,scale). Fixed -> modulate(norm,sc,sh). Affects vanilla/TTT/text ALL -> old numbers void, must retrain.
+2. shuffle eval silently MATCHED on val: DER=build_derangement(TR) only; val fell back to src=s. Fixed: DER covers train+val; 54/54 val deranged.
+3. Non-shared data/noise streams (model-init RNG consumption differed -> different loader order + noise; val noise re-randomized each eval). Fixed: independent generators (g_data, g_val, mf.noise_gen) + FIXED per-stem VAL_Z0 shared across all models/modes -> val metric deterministic; matched/off/shuffle differ ONLY by condition.
+4. MeanFlow sample hardcoded square 480x480. Fixed: stores (height,width).
+- Verified CPU (VAL 54, DER 54/54 deranged, H/W 480/240, forward OK) + GPU smoke CMF_DONE.
+- CONSEQUENCE: all prior CMF numbers void (0.176-vs-0.169 gaps were within removed noise confounds); must retrain.
+- Part2 next: joint-6 embedding control; spatial injection (region->vertical, direction->horizontal); drop full-official-ViT3 claim.
