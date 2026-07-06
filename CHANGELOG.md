@@ -846,3 +846,10 @@ All val(54), same eval_common (SSIM/PSNR/LPIPS, preds resized to 480x240):
 - Verified CPU (VAL 54, DER 54/54 deranged, H/W 480/240, forward OK) + GPU smoke CMF_DONE.
 - CONSEQUENCE: all prior CMF numbers void (0.176-vs-0.169 gaps were within removed noise confounds); must retrain.
 - Part2 next: joint-6 embedding control; spatial injection (region->vertical, direction->horizontal); drop full-official-ViT3 claim.
+
+## R113 — Part 2: joint-embedding control + spatial injection + ViT3-claim honesty
+2.2 JOINT embedding: --text_emb {factorized, joint, both}. factorized = region(3)+direction(2) marginals (shares left/right across regions but LOSES joint correlation). joint = 6-class Embedding on Q_JOINT (keeps (region,direction) correlation/uncertainty). both = concat. build_states now also returns Q_JOINT; agent_condition_of returns (region,direction,joint); model.joint_prob set per-forward. Answers: does factorization lose real joint info?
+2.3 SPATIAL injection: --inject {global, spatial, both}. global = agent_emb added to AdaLN cond c (old weak form). spatial = region->vertical (region_vprofile [3,gh,dim]) + direction->horizontal (direction_hprofile [2,gw,dim]), per-token additive bias, ZERO-INIT (starts image-only, non-degrading). Answers: is weak global-AdaLN the reason text looked null?
+2.1 HONESTY: NOT full-official ViT3/DiT3. Deviations documented: RMSNorm (not official LayerNorm), inner_lr=0.25 (official ~1.0), CPE zero-init (R110, official uses default nonzero), fixed sincos pos (R110). Claim = "MeanFlow DiT with a ViT3-style TTT mixer", not "official ViT3".
+- 9 combos (text_emb x inject) build+forward verified; both+both GPU smoke CMF_DONE (34.48M). All zero-init -> non-degrading start.
+- Ablation matrix now available on the R112-corrected code (old numbers void): attn {vanilla, ttt(+/-cpe)} x text_emb {factorized,joint,both} x inject {global,spatial,both} x text {on,off,shuffle}, all with FIXED val noise.

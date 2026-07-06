@@ -80,3 +80,5 @@ CUDA_VISIBLE_DEVICES=0 python test.py --config config.yaml --ckpt checkpoints/st
 
 Results, including predictions, ground truths, and combined grids, will be saved to the `outdir` specified in your configuration.
 ```
+## Note on ViT3/TTT (honesty)
+This uses a **ViT3-style TTT mixer**, NOT the full official ViT3/DiT3. Deviations: RMSNorm (vs official LayerNorm), inner_lr=0.25 (vs ~1.0), CPE zero-init, fixed (frozen) sincos pos. Phenotype-text options: --text_emb {factorized,joint,both}, --inject {global,spatial,both}.

@@ -90,7 +90,7 @@ class FinalLayer(nn.Module):
 
 class MFDiT(nn.Module):
     def __init__(self, img_size=(480, 240), patch_size=8, data_channels=1, cond_channels=1,
-                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, text=True, attn_type="vanilla", inner_lr=0.25, cpe=False):
+                 dim=384, depth=12, num_heads=6, mlp_ratio=4.0, text=True, attn_type="vanilla", inner_lr=0.25, cpe=False, text_emb="factorized", inject="global"):
         super().__init__()
         self.data_channels = data_channels; self.cond_channels = cond_channels
         self.in_channels = data_channels + cond_channels; self.out_channels = data_channels
@@ -104,16 +104,35 @@ class MFDiT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, self.x_embedder.num_patches, dim), requires_grad=False)  # FIXED sincos (match official DiT3; avoid double-position overfit on 432 cases)
         self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw, inner_lr, cpe) for _ in range(depth)])
         self.final_layer = FinalLayer(dim, patch_size, self.out_channels)
-        self.agent_condition = text; self.region_prob = None; self.direction_prob = None
-        if self.agent_condition:   # FACTORIZED phenotype embeddings (region x3, direction x2), soft-prob weighted
-            self.region_embedding = nn.Embedding(NUM_REGIONS, dim)
-            self.direction_embedding = nn.Embedding(NUM_DIRECTIONS, dim)
-            self.agent_adapter = nn.Sequential(nn.Linear(2 * dim, dim), nn.SiLU(), nn.Linear(dim, dim))
+        self.agent_condition = text; self.text_emb = text_emb; self.inject = inject
+        self.region_prob = None; self.direction_prob = None; self.joint_prob = None
+        if self.agent_condition:
+            D = 0
+            if text_emb in ("factorized", "both"):   # marginals: thoracic-right & lumbar-right share the right emb
+                self.region_embedding = nn.Embedding(NUM_REGIONS, dim)
+                self.direction_embedding = nn.Embedding(NUM_DIRECTIONS, dim); D += 2 * dim
+            if text_emb in ("joint", "both"):         # 6-class joint: keeps (region,direction) correlation/uncertainty
+                self.joint_embedding = nn.Embedding(NUM_REGIONS * NUM_DIRECTIONS, dim); D += dim
+            if inject in ("global", "both"):
+                self.agent_adapter = nn.Sequential(nn.Linear(D, dim), nn.SiLU(), nn.Linear(dim, dim))
+            if inject in ("spatial", "both"):         # region->vertical rows, direction->horizontal cols; zero-init
+                self.region_vprofile = nn.Parameter(torch.zeros(NUM_REGIONS, self.gh, dim))
+                self.direction_hprofile = nn.Parameter(torch.zeros(NUM_DIRECTIONS, self.gw, dim))
         self.initialize_weights()
-    def encode_agent_condition(self, region_prob, direction_prob):   # soft-weighted embedding lookup + fuse
-        region_emb = region_prob @ self.region_embedding.weight        # [B,3]@[3,D] -> [B,D]
-        direction_emb = direction_prob @ self.direction_embedding.weight  # [B,2]@[2,D] -> [B,D]
-        return self.agent_adapter(torch.cat([region_emb, direction_emb], dim=-1))
+    def _agent_vec(self):   # concat enabled soft-weighted embeddings
+        parts = []
+        if self.text_emb in ("factorized", "both"):
+            parts.append(self.region_prob @ self.region_embedding.weight)
+            parts.append(self.direction_prob @ self.direction_embedding.weight)
+        if self.text_emb in ("joint", "both"):
+            parts.append(self.joint_prob @ self.joint_embedding.weight)
+        return torch.cat(parts, dim=-1)
+    def encode_agent_condition(self):
+        return self.agent_adapter(self._agent_vec())
+    def spatial_bias(self, B):   # region->vertical (rows), direction->horizontal (cols); per-token additive
+        vbias = torch.einsum("br,rhd->bhd", self.region_prob, self.region_vprofile)
+        hbias = torch.einsum("bk,kwd->bwd", self.direction_prob, self.direction_hprofile)
+        return (vbias[:, :, None, :] + hbias[:, None, :, :]).reshape(B, self.gh * self.gw, -1)
     def initialize_weights(self):
         def _init(m):
             if isinstance(m, nn.Linear):
@@ -130,8 +149,13 @@ class MFDiT(nn.Module):
             if getattr(b, "cpe_on", False):
                 nn.init.zeros_(b.cpe.weight); nn.init.zeros_(b.cpe.bias)
         if self.agent_condition:
-            nn.init.normal_(self.region_embedding.weight, std=0.02); nn.init.normal_(self.direction_embedding.weight, std=0.02)
-            nn.init.zeros_(self.agent_adapter[-1].weight); nn.init.zeros_(self.agent_adapter[-1].bias)  # start = image-only cond
+            if self.text_emb in ("factorized", "both"):
+                nn.init.normal_(self.region_embedding.weight, std=0.02); nn.init.normal_(self.direction_embedding.weight, std=0.02)
+            if self.text_emb in ("joint", "both"):
+                nn.init.normal_(self.joint_embedding.weight, std=0.02)
+            if self.inject in ("global", "both"):
+                nn.init.zeros_(self.agent_adapter[-1].weight); nn.init.zeros_(self.agent_adapter[-1].bias)  # start = image-only
+            # spatial profiles are torch.zeros -> start image-only
     def unpatchify(self, x):
         c, p, gh, gw = self.out_channels, self.patch_size, self.gh, self.gw
         x = x.reshape(x.shape[0], gh, gw, p, p, c)
@@ -146,7 +170,10 @@ class MFDiT(nn.Module):
         gate = torch.sigmoid(self.tr_gate(torch.cat([p, q], dim=-1)))
         c = p + gate * cond_emb
         if self.agent_condition and self.region_prob is not None and self.direction_prob is not None:
-            c = c + self.encode_agent_condition(self.region_prob, self.direction_prob)
+            if self.inject in ("global", "both"):
+                c = c + self.encode_agent_condition()
+            if self.inject in ("spatial", "both"):
+                x_tokens = x_tokens + self.spatial_bias(x_tokens.shape[0])
         for blk in self.blocks:
             x_tokens = blk(x_tokens, c)
         return self.unpatchify(self.final_layer(x_tokens, c))
