@@ -33,7 +33,7 @@ class Attention(nn.Module):
         super().__init__(); self.nh = num_heads; self.hd = dim // num_heads
         self.qkv = nn.Linear(dim, dim * 3, bias=True); self.proj = nn.Linear(dim, dim)
         self.qn = RMSNorm(self.hd) if qk_norm else nn.Identity(); self.kn = RMSNorm(self.hd) if qk_norm else nn.Identity()
-    def forward(self, x):
+    def forward(self, x, gh=None, gw=None):   # #2: unified contract (vanilla ignores gh/gw)
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.nh, self.hd).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]; q = self.qn(q); k = self.kn(k)
@@ -75,7 +75,7 @@ class DiTBlock(nn.Module):
             x = x + self.cpe(x.reshape(B, self.gh, self.gw, C).permute(0, 3, 1, 2)).flatten(2).transpose(1, 2)
         sh_a, sc_a, g_a, sh_m, sc_m, g_m = self.adaLN_modulation(c).chunk(6, dim=-1)
         hh = modulate(self.norm1(x), sc_a, sh_a)
-        a = self.attn(hh, self.gh, self.gw) if self.attn_type == "ttt" else self.attn(hh)
+        a = self.attn(hh, self.gh, self.gw)   # #2: unified attn interface (vanilla ignores gh/gw)
         x = x + g_a.unsqueeze(1) * a
         x = x + g_m.unsqueeze(1) * self.mlp(modulate(self.norm2(x), sc_m, sh_m))
         return x

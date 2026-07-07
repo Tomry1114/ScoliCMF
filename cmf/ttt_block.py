@@ -9,6 +9,14 @@ from torch.nn.init import trunc_normal_
 import torch.nn.functional as F
 
 
+class _RMSNorm(nn.Module):
+    """qk-norm mirroring the vanilla Attention path (added for MeanFlow JVP stability)."""
+    def __init__(self, dim):
+        super().__init__(); self.scale = dim ** 0.5; self.g = nn.Parameter(torch.ones(1))
+    def forward(self, x):
+        return F.normalize(x, dim=-1) * self.scale * self.g
+
+
 class TTT(nn.Module):
     r""" Test-Time Training block for ViT^3 model.
         - https://arxiv.org/abs/2512.01643
@@ -29,7 +37,7 @@ class TTT(nn.Module):
         qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
     """
 
-    def __init__(self, dim, num_heads, qkv_bias=True, inner_lr=0.25, **kwargs):
+    def __init__(self, dim, num_heads, qkv_bias=True, inner_lr=0.25, qk_norm=True, **kwargs):
 
         super().__init__()
         head_dim = dim // num_heads
@@ -45,6 +53,9 @@ class TTT(nn.Module):
         trunc_normal_(self.w2, std=.02)
         trunc_normal_(self.w3, std=.02)
         self.proj = nn.Linear(dim + head_dim, dim)
+        self.qk_norm = qk_norm
+        if qk_norm:
+            self.qn = _RMSNorm(head_dim); self.kn = _RMSNorm(head_dim)   # #1: port vanilla qk-norm to TTT
 
         equivalent_head_dim = 9
         self.scale = equivalent_head_dim ** -0.5
@@ -156,6 +167,8 @@ class TTT(nn.Module):
             q1 = q1.reshape(b, n, self.num_heads, d).transpose(1, 2)
             k1 = k1.reshape(b, n, self.num_heads, d).transpose(1, 2)
         v1 = v1.reshape(b, n, self.num_heads, d).transpose(1, 2)
+        if self.qk_norm:
+            q1 = self.qn(q1); k1 = self.kn(k1)   # #1: bound q/k before inner-loop matmuls (JVP smoothness)
         q2 = q2.reshape(b, h, w, d).permute(0, 3, 1, 2)
         k2 = k2.reshape(b, h, w, d).permute(0, 3, 1, 2)
         v2 = v2.reshape(b, h, w, d).permute(0, 3, 1, 2)

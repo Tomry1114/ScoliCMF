@@ -2,6 +2,15 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-07 — TTT×MeanFlow 解耦(#1 qk-norm + #2 接口统一)
+
+- **动机**:验收 TTT 对 MeanFlow 的适配。探针结论:①「grad-clip 二阶求导会爆/NaN」**证伪**(ttt dudt=vanilla 0.6×,零 NaN);② TTT 的 test-time 内循环只贡献 ~2.5% 输出、w1/w2 训练梯度比主投影弱 10×(随机权重 regime,训练后可能变)。→ 定位到**代码耦合**,不是 inner_lr。
+- **#1 qk-norm 移植**:vanilla `Attention(qk_norm=True)` 的 q/k RMSNorm(当初为 JVP 稳定加)之前**没给 TTT**,切 attn_type 静默丢失。现 `ttt_block.py` 加 `_RMSNorm`,默认 `qk_norm=True`,对 q1/k1 在进内循环 matmul 前归一。
+- **#2 接口统一**:`Attention.forward(x,gh,gw)`(vanilla 忽略 gh/gw),`DiTBlock` 去掉 `if attn_type=="ttt"` 分叉 → 两 mixer 共用契约,ablation 干净 A/B。
+- **验证(debug GPU)**:(a) TTT 有 qn/kn;(b) `Attention(x,60,30)` OK;(c) vanilla/ttt JVP 均有限、零 NaN(ttt max|dudt| 486≈改前 484);(d) 真实 `meanflow.loss` backward 两路均通、grad 有限。
+- **未做**:#3 位置机制错配(TTT 置换等变 mixer 缺 ViT³ 的 CPE 位置搭档,只靠冻结 sincos)——改动大,待设计决策。
+- **产物**:probe_jvp.py / probe_ttt_alive.py / verify_couple.py。
+
 ## 2026-06-30 — 第 66 轮：PMOS v2(修复后)= 弱/负结果 —— 塌缩破但多样性拖垮质量
 
 - **v2(pmos_K4b,K=4,tau0.02,L_div margin0.06 λ0.3,proto 多样化init)**:
