@@ -2,6 +2,15 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-07 — TTT×MeanFlow 解耦 #3:2D RoPE 补位置(+ cudnn 修复)
+
+- **#3 病因**:TTT 主分支(SwiGLU)置换等变,位置只靠一次性冻结 sincos,过 12 层稀释;ViT³ 原用 CPE 补位置,搬 mixer 时没搬。
+- **修法(RoPE,用户选)**:`ttt_block.py` 加 `_RoPE2D`——轴向 2D 旋转位置,head_dim 一半按行(row)转、一半按列(col)转,**无参数**(只 cos/sin buffer,不在 432 例上过拟合)、JVP 安全(常量×+线性 rotate_half)。复用 TTT.forward 已存在的 `rope` 钩子,只作用于 SwiGLU 分支 q1/k1(conv 分支本就有局部性,不动)。
+- **接线**:`TTT(gh,gw,use_rope)` 内建 self.rope;`DiTBlock`/`MFDiT` 加 `rope` 开关下传;`train_cmf.py` 加 `--rope`(默认 1)。与 qk-norm 可交换(旋转保范)。
+- **cudnn 修复**:`train_cmf.py` 加 `torch.backends.cudnn.enabled=False`(scoliagent cu121 在 A800/A40 上 CUDNN_STATUS_NOT_INITIALIZED,PatchEmbed conv 处崩;之前 vanilla smoke 撞运气跑在别的卡)。另 scoliagent 补装 `lpips`(env 层,eval LPIPS 需要)。
+- **验证(debug GPU)**:(a) rope buffer cos_h/sin_h/cos_w/sin_w 齐;(b) rope on-vs-off 输出差 1.2%(位置确注入);(c) JVP 有限零 NaN(max|dudt| 483);(d) meanflow backward grad 全有限;(e) **端到端** `train_cmf --attn ttt --rope 1` 30 步+eval → CMF_DONE(36.02M)。
+- **产物**:verify_rope.py;runs/smoke_rope。
+
 ## 2026-07-07 — TTT×MeanFlow 解耦(#1 qk-norm + #2 接口统一)
 
 - **动机**:验收 TTT 对 MeanFlow 的适配。探针结论:①「grad-clip 二阶求导会爆/NaN」**证伪**(ttt dudt=vanilla 0.6×,零 NaN);② TTT 的 test-time 内循环只贡献 ~2.5% 输出、w1/w2 训练梯度比主投影弱 10×(随机权重 regime,训练后可能变)。→ 定位到**代码耦合**,不是 inner_lr。

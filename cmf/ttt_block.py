@@ -17,6 +17,37 @@ class _RMSNorm(nn.Module):
         return F.normalize(x, dim=-1) * self.scale * self.g
 
 
+class _RoPE2D(nn.Module):
+    """Axial 2D rotary position for a fixed gh x gw token grid (row-major). Splits each head_dim into
+    an h-half (rotated by row index) and a w-half (rotated by col index). No learnable params."""
+    def __init__(self, head_dim, num_heads, gh, gw, base=10000.0):
+        super().__init__()
+        self.num_heads = num_heads; self.head_dim = head_dim
+        half = head_dim // 2                                   # dims per axis
+        assert head_dim % 4 == 0, "head_dim must be divisible by 4 for axial 2D RoPE"
+        inv = base ** (-torch.arange(0, half, 2).float() / half)   # (half/2,)
+        rows = torch.arange(gh).repeat_interleave(gw).float()      # (n,) row-major row idx
+        cols = torch.arange(gw).repeat(gh).float()                 # (n,) row-major col idx
+        emb_h = torch.cat([rows[:, None] * inv[None, :]] * 2, dim=-1)   # (n, half)
+        emb_w = torch.cat([cols[:, None] * inv[None, :]] * 2, dim=-1)   # (n, half)
+        for nm, e in (("cos_h", emb_h.cos()), ("sin_h", emb_h.sin()),
+                      ("cos_w", emb_w.cos()), ("sin_w", emb_w.sin())):
+            self.register_buffer(nm, e, persistent=False)
+    @staticmethod
+    def _rot(t):                                                # rotate_half over the last dim
+        h = t.shape[-1] // 2
+        return torch.cat([-t[..., h:], t[..., :h]], dim=-1)
+    def forward(self, x):                                       # x: (b, H, W, c=num_heads*head_dim)
+        b, H, W, c = x.shape; n = H * W; d = self.head_dim; half = d // 2
+        x = x.reshape(b, n, self.num_heads, d)
+        xh, xw = x[..., :half], x[..., half:]
+        ch = self.cos_h[None, :, None, :]; sh = self.sin_h[None, :, None, :]
+        cw = self.cos_w[None, :, None, :]; sw = self.sin_w[None, :, None, :]
+        xh = xh * ch + self._rot(xh) * sh
+        xw = xw * cw + self._rot(xw) * sw
+        return torch.cat([xh, xw], dim=-1).reshape(b, H, W, c)
+
+
 class TTT(nn.Module):
     r""" Test-Time Training block for ViT^3 model.
         - https://arxiv.org/abs/2512.01643
@@ -37,7 +68,7 @@ class TTT(nn.Module):
         qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
     """
 
-    def __init__(self, dim, num_heads, qkv_bias=True, inner_lr=0.25, qk_norm=True, **kwargs):
+    def __init__(self, dim, num_heads, qkv_bias=True, inner_lr=0.25, qk_norm=True, gh=0, gw=0, use_rope=True, **kwargs):
 
         super().__init__()
         head_dim = dim // num_heads
@@ -56,6 +87,7 @@ class TTT(nn.Module):
         self.qk_norm = qk_norm
         if qk_norm:
             self.qn = _RMSNorm(head_dim); self.kn = _RMSNorm(head_dim)   # #1: port vanilla qk-norm to TTT
+        self.rope = _RoPE2D(head_dim, num_heads, gh, gw) if (use_rope and gh > 0 and gw > 0) else None   # #3
 
         equivalent_head_dim = 9
         self.scale = equivalent_head_dim ** -0.5
@@ -160,6 +192,7 @@ class TTT(nn.Module):
 
         # Prepare q/k/v
         q1, k1, v1, q2, k2, v2 = torch.split(self.qkv(x), [c, c, c, d, d, d], dim=-1)
+        rope = self.rope if getattr(self, "rope", None) is not None else rope   # #3: internal 2D RoPE
         if rope is not None:
             q1 = rope(q1.reshape(b, h, w, c)).reshape(b, n, self.num_heads, d).transpose(1, 2)
             k1 = rope(k1.reshape(b, h, w, c)).reshape(b, n, self.num_heads, d).transpose(1, 2)

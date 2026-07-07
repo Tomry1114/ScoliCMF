@@ -2,6 +2,7 @@
 on our preop->postop data, conditioned on (pre-op image + VLM phenotype text). Genuine velocity
 MeanFlow (JVP), noise->postop. --text on|off|shuffle ablation."""
 import os, sys, argparse, json, glob, numpy as np, torch
+torch.backends.cudnn.enabled = False   # scoliagent cu121 on A800/A40: avoid CUDNN_STATUS_NOT_INITIALIZED
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from torchvision import transforms as T
@@ -85,7 +86,7 @@ def main():
     ap=argparse.ArgumentParser(); ap.add_argument("--out",required=True); ap.add_argument("--text",default="on",choices=["on","off","shuffle"])
     ap.add_argument("--steps",type=int,default=20000); ap.add_argument("--bs",type=int,default=6); ap.add_argument("--lr",type=float,default=1e-4)
     ap.add_argument("--nfe",type=int,default=10); ap.add_argument("--save_step",type=int,default=4000); ap.add_argument("--seed",type=int,default=0)
-    ap.add_argument("--attn",default="vanilla",choices=["vanilla","ttt"]); ap.add_argument("--inner_lr",type=float,default=0.25); ap.add_argument("--cpe",type=int,default=0)
+    ap.add_argument("--attn",default="vanilla",choices=["vanilla","ttt"]); ap.add_argument("--inner_lr",type=float,default=0.25); ap.add_argument("--cpe",type=int,default=0); ap.add_argument("--rope",type=int,default=1)
     ap.add_argument("--text_emb",default="factorized",choices=["factorized","joint","both"]); ap.add_argument("--inject",default="global",choices=["global","spatial","both"])
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed)
     H,W=480,240
@@ -93,7 +94,7 @@ def main():
     g_val=torch.Generator().manual_seed(20260707)   # FIX3 fixed val noise shared across all models/modes
     VAL_Z0={s:torch.randn(1,1,H,W,generator=g_val) for s in sorted(Paired("val.txt",H,W).stems)}
     g_data=torch.Generator().manual_seed(a.seed+12345)   # FIX3 dataloader order independent of model-init RNG
-    model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),text_emb=a.text_emb,inject=a.inject).to(dev)
+    model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),text_emb=a.text_emb,inject=a.inject,rope=bool(a.rope)).to(dev)
     mf=MeanFlow(channels=1,image_size=H,normalizer=['mean_std',[0.5],[0.5]],flow_ratio=0.75,time_dist=['lognorm',-0.4,1.0])
     print("CMF attn=%s inner_lr=%.2f cpe=%d text=%s trainable=%.2fM"%(a.attn,a.inner_lr,a.cpe,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
     opt=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=0.0); ema=[p.detach().clone() for p in model.parameters()]
