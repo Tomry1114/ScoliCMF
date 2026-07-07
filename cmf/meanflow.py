@@ -63,6 +63,7 @@ class MeanFlow:
         model: torch.nn.Module,
         y: torch.Tensor,
         cond_img: Optional[torch.Tensor] = None,
+        model_kwargs: Optional[dict] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         B, device = y.shape[0], y.device
         t, r = self.sample_t_r(B, device)
@@ -76,8 +77,9 @@ class MeanFlow:
         z = (1 - t_) * y_norm + t_ * e
         v = e - y_norm
 
+        mk = model_kwargs or {}
         def f(z_in, t_in, r_in):
-            return model(z_in, t_in, r_in) if cond_img is None else model(z_in, t_in, r_in, cond_img)
+            return model(z_in, t_in, r_in, **mk) if cond_img is None else model(z_in, t_in, r_in, cond_img, **mk)
 
         inputs = (z, t, r)
         tangents = (v, torch.ones_like(t), torch.zeros_like(r))

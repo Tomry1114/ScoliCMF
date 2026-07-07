@@ -2,6 +2,18 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-07 — 新架构 DRICA(Diagnosis-Routed Interval Cross-Attention),替代 FGA
+
+- **想法**:不再"额外加一个 attention",而是把术前图像条件路径改造成检索:当前生成态 z_t = Query,术前影像 = Key/Value,诊断(region/direction/joint)路由"从术前影像何处检索",MeanFlow 区间 (t,r) 决定检索强度/方式。
+- **新文件 `cmf/models/drica.py`**:IntervalEncoder((t,r)→ctx+4 路强度)、DiagnosisRouter(region→纵向 attention-logit bias、direction→横向 bias、joint+interval→per-head 分支权重)、AxialCrossAttention(v=每列跨行检索/h=每行跨列检索,bias 加在 key logits 上=真检索路由不是位置向量)、DRICABlock(纵/横/joint=逐元素乘耦合,per-head 融合,零初始化残差=起步恒等)。
+- **新文件 `cmf/models/dit_drica.py`**:MFDiTDRICA——current/source **双编码器**(删掉早期 concat 和全局 mean pooling,那会丢胸/胸腰/腰+左右空间证据),DRICA 插在 blocks (2,6,10),source 固定不逐层更新。
+- **`meanflow.py`**:loss() 加 `model_kwargs`,JVP 内 `f` 显式 `**mk` 透传 diagnosis(诊断作为常量、不进 tangent,适配 JVP+多卡,无残留 model state)。
+- **`train_cmf.py`**:`--arch {mfdit,drica}`(默认 mfdit,不动旧路径)+ `--drica_layers`;diag_dict(text=off 用均匀先验);sample()/evaluate() 按 arch 把 diagnosis 穿进采样循环。
+- **JVP 安全**:全程只 Linear/SiLU/sigmoid/softmax/einsum/matmul/mul/LayerNorm(eps>0),无 SDPA/in-place/零点 sqrt。
+- **验证(debug GPU)**:params 38.22M;forward shape 对、零初始化→输出 0;**JVP 有限零 NaN/Inf**(max|dudt| 568);meanflow loss(model_kwargs) backward 293 张量全有限;换 diagnosis 输出变 1.09e-3(路由生效);**端到端** `--arch drica` 30 步+eval → CMF_DONE。
+- **显存**:DRICA 比 MFDiT 重,A40(48GB)bs=6 双反传 OOM;需 a800(80GB)或降 bs。
+- **产物**:verify_drica.py;runs/smoke_drica。**不影响正在排队的 MFDiT 完整版作业 9952042**。
+
 ## 2026-07-07 — 修 joint 模式两个实现错误(用户 review)
 
 - **Bug A:joint 在 spatial 模式是死参数**。`spatial_bias` 只读 region_prob/direction_prob + region/direction profile,从不读 joint_prob;且 spatial profile 只按 inject 建、不按 text_emb。→ factorized/joint/both + spatial 三者空间机制完全相同,joint_embedding 白建。**修**:spatial profile 按 text_emb 建;joint/both 额外建 `joint_vprofile/joint_hprofile`(6 个独立 (行,列) profile,能编码 region⊕direction 编码不了的相关性);`spatial_bias` 按 text_emb 累加 factorized 和/或 joint 贡献。

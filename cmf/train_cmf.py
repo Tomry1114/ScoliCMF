@@ -55,6 +55,11 @@ def agent_condition_of(stems,dev,mode):   # -> (region[B,3], direction[B,2], joi
     return (torch.tensor(np.stack(rb),device=dev,dtype=torch.float32),
             torch.tensor(np.stack(db),device=dev,dtype=torch.float32),
             torch.tensor(np.stack(jb),device=dev,dtype=torch.float32))
+def diag_dict(stem,dev,mode):   # DRICA: explicit diagnosis dict; uniform prior when text=off
+    rp,dp,jp=agent_condition_of(stem,dev,mode)
+    if rp is None:
+        B=len(stem); rp=torch.full((B,3),1/3.,device=dev); dp=torch.full((B,2),0.5,device=dev); jp=torch.full((B,6),1/6.,device=dev)
+    return {"region":rp,"direction":dp,"joint":jp}
 # ---- data ----
 class Paired(Dataset):
     def __init__(self,split,H,W):
@@ -71,19 +76,25 @@ def loader(split,H,W,bs,sh,gen=None):
     return DataLoader(Paired(split,H,W),batch_size=bs,shuffle=sh,num_workers=2,drop_last=sh,generator=gen)  # FIX3 own generator
 def psnr(a,b): return -10*torch.log10(((a-b)**2).mean(dim=(1,2,3)).clamp_min(1e-10))
 @torch.no_grad()
-def sample(mf,model,cond,H,W,dev,steps,z0=None):
+def sample(mf,model,cond,H,W,dev,steps,z0=None,diag=None):
     B=cond.shape[0]; z=z0.to(dev) if z0 is not None else torch.randn(B,1,H,W,device=dev); tv=torch.linspace(1,0,steps+1,device=dev)
     for i in range(steps):
         t=torch.full((B,),tv[i].item(),device=dev); r=torch.full((B,),tv[i+1].item(),device=dev)
-        z=z-_v4(t-r)*model(z,t,r,cond)
+        v=model(z,t,r,cond) if diag is None else model(z,t,r,cond,diagnosis=diag)
+        z=z-_v4(t-r)*v
     return mf.normer.unnorm(z).clamp(0,1)
 @torch.no_grad()
 def evaluate(mf,model,H,W,dev,steps,text_mode):
     model.eval();SS=[];PS=[];LP=[]
+    is_drica=hasattr(model,"drica_blocks")
     for cond,tgt,stm in loader("val.txt",H,W,6,False):
-        cond,tgt=cond.to(dev),tgt.to(dev); model.region_prob,model.direction_prob,model.joint_prob=agent_condition_of(stm,dev,text_mode)
+        cond,tgt=cond.to(dev),tgt.to(dev)
         z0=torch.cat([VAL_Z0[s] for s in stm],0)   # FIX3 fixed per-stem val noise
-        o=sample(mf,model,cond,H,W,dev,steps,z0=z0)
+        if is_drica:
+            o=sample(mf,model,cond,H,W,dev,steps,z0=z0,diag=diag_dict(stm,dev,text_mode))
+        else:
+            model.region_prob,model.direction_prob,model.joint_prob=agent_condition_of(stm,dev,text_mode)
+            o=sample(mf,model,cond,H,W,dev,steps,z0=z0)
         SS.append(ssim(o,tgt).cpu());PS.append(psnr(o,tgt).cpu());LP.append(lpips_fn(o,tgt).cpu())
     model.train(); return float(torch.cat(SS).mean()),float(torch.cat(PS).mean()),float(torch.cat(LP).mean())
 def main():
@@ -92,6 +103,7 @@ def main():
     ap.add_argument("--nfe",type=int,default=10); ap.add_argument("--save_step",type=int,default=4000); ap.add_argument("--seed",type=int,default=0)
     ap.add_argument("--attn",default="vanilla",choices=["vanilla","ttt"]); ap.add_argument("--inner_lr",type=float,default=0.25); ap.add_argument("--cpe",type=int,default=0); ap.add_argument("--rope",type=int,default=1)
     ap.add_argument("--text_emb",default="factorized",choices=["factorized","joint","both"]); ap.add_argument("--inject",default="global",choices=["global","spatial","both"])
+    ap.add_argument("--arch",default="mfdit",choices=["mfdit","drica"]); ap.add_argument("--drica_layers",default="2,6,10")
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed)
     H,W=480,240
     global VAL_Z0, DER
@@ -99,9 +111,13 @@ def main():
     g_val=torch.Generator().manual_seed(20260707)   # FIX3 fixed val noise shared across all models/modes
     VAL_Z0={s:torch.randn(1,1,H,W,generator=g_val) for s in sorted(Paired("val.txt",H,W).stems)}
     g_data=torch.Generator().manual_seed(a.seed+12345)   # FIX3 dataloader order independent of model-init RNG
-    model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),text_emb=a.text_emb,inject=a.inject,rope=bool(a.rope)).to(dev)
+    if a.arch=="drica":
+        from models.dit_drica import MFDiTDRICA
+        model=MFDiTDRICA(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),rope=bool(a.rope),drica_layer_ids=tuple(int(x) for x in a.drica_layers.split(","))).to(dev)
+    else:
+        model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),text_emb=a.text_emb,inject=a.inject,rope=bool(a.rope)).to(dev)
     mf=MeanFlow(channels=1,image_size=H,normalizer=['mean_std',[0.5],[0.5]],flow_ratio=0.75,time_dist=['lognorm',-0.4,1.0])
-    print("CMF attn=%s inner_lr=%.2f cpe=%d text=%s trainable=%.2fM"%(a.attn,a.inner_lr,a.cpe,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
+    print("CMF arch=%s attn=%s inner_lr=%.2f cpe=%d text=%s trainable=%.2fM"%(a.arch,a.attn,a.inner_lr,a.cpe,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
     opt=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=0.0); ema=[p.detach().clone() for p in model.parameters()]
     def emaup(d=0.999):
         for e,p in zip(ema,model.parameters()): e.mul_(d).add_(p.detach(),alpha=1-d)
@@ -111,8 +127,11 @@ def main():
     it=cycle(loader("train.txt",H,W,a.bs,True,gen=g_data)); model.train()
     for step in range(1,a.steps+1):
         cond,tgt,stm=next(it); cond,tgt=cond.to(dev),tgt.to(dev)
-        model.region_prob,model.direction_prob,model.joint_prob=agent_condition_of(stm,dev,a.text)
-        loss,mse=mf.loss(model,tgt,cond_img=cond)
+        if a.arch=="drica":
+            loss,mse=mf.loss(model,tgt,cond_img=cond,model_kwargs={"diagnosis":diag_dict(stm,dev,a.text)})
+        else:
+            model.region_prob,model.direction_prob,model.joint_prob=agent_condition_of(stm,dev,a.text)
+            loss,mse=mf.loss(model,tgt,cond_img=cond)
         opt.zero_grad(); loss.backward(); torch.nn.utils.clip_grad_norm_(model.parameters(),1.0); opt.step(); emaup()
         if step%200==0: log("step %5d loss %.4f mse %.5f"%(step,loss.item(),float(mse)))
         if step%a.save_step==0:
