@@ -23,7 +23,7 @@ class MFDiTDRICA(nn.Module):
         self.current_pos_embed = nn.Parameter(torch.zeros(1, N, dim), requires_grad=False)
         self.source_pos_embed  = nn.Parameter(torch.zeros(1, N, dim), requires_grad=False)
         self.t_embedder = TimestepEmbedder(dim); self.r_embedder = TimestepEmbedder(dim)
-        self.interval_encoder = IntervalEncoder(dim)
+        self.interval_encoder = IntervalEncoder(dim, num_heads)
         self.blocks = nn.ModuleList([DiTBlock(dim, num_heads, mlp_ratio, attn_type, self.gh, self.gw,
                                               inner_lr, cpe, rope=rope) for _ in range(depth)])
         self.drica_layer_ids = tuple(sorted(set(drica_layer_ids)))

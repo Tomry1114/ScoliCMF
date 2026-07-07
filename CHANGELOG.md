@@ -2,6 +2,14 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-07 — DRICA 两个机制加强(joint 直接耦合 + interval per-head 改检索位置)
+
+- **加强① joint 调制耦合(不只当分支权重)**:`DRICABlock.joint_modulator: Linear(dim,2dim)` 从 joint_ctx 出 (gamma,beta),对 `out_v*out_h` 做 FiLM → `(1+γ)·(out_v⊙out_h)+β`。**零初始化** → 起步 γ=β=0 = 原耦合(恒等)。现在不同 joint phenotype 真的改变纵横耦合方式,不只是决定 joint 分支占多少。DiagnosisRouter 额外返回 joint_ctx。
+- **加强② interval per-head 改"检索哪里"**:`IntervalEncoder.scale_head → [B,heads,4]`(原 [B,4]);`sv/sh` 在 attention **之前**乘到 `vbias/hbias`(每 head 随区间改检索位置强度),`sj` 调 joint 耦合强度,`sr` per-head 残差强度。原来 interval 只在 attention 之后缩放输出,现在直接进检索路由。
+- **JVP 仍安全**(FiLM/sigmoid/einsum 全光滑):max|dudt| 583、零 NaN/Inf、loss backward 299 张量全有限;diagnosis 敏感度 2.82e-3(加强前 1.09e-3,表达力更强);起步输出仍 0(恒等);端到端 CMF_DONE 39.11M(+0.89M)。
+- **仍待接线**:return_aux(声明未收集,DRICABlock 已支持返回 aux,MFDiTDRICA.forward 未透传)。
+- **不影响排队作业**(9952042 MFDiT、9952559 DRICA 用的是加强前版本;如需可重提)。
+
 ## 2026-07-07 — DRICA review 4 必修 + checkpoint 元数据(用户 review)
 
 - 用户 review 判定 DRICA 主设计正确(真 routing:Q=术后生成态、K/V=术前影像、region→纵向 logits、direction→横向 logits、joint→轴向耦合、(t,r)→强度/组合)。修 4 个集成错误:
