@@ -6,12 +6,17 @@ torch.backends.cudnn.enabled = False   # scoliagent cu121 on A800/A40: avoid CUD
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from torchvision import transforms as T
-sys.path.insert(0, os.path.expanduser("~/ScoliCMF"))     # for metrics_img
-sys.path.insert(0, os.path.expanduser("~/ScoliCMF_cmf"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # this train_cmf.py's OWN dir wins (no ScoliCMF_cmf shadow)
+sys.path.append(os.path.expanduser("~/ScoliCMF"))              # for metrics_img (low priority)
 from utils import cycle, load_config
 from meanflow import MeanFlow
 from models.dit import MFDiT
 from metrics_img import ssim, lpips_fn
+import inspect, subprocess
+print("[import] MFDiT    <- %s" % inspect.getfile(MFDiT), flush=True)
+print("[import] MeanFlow <- %s" % inspect.getfile(MeanFlow), flush=True)
+try: _GIT_SHA = subprocess.check_output(["git","-C",os.path.dirname(os.path.abspath(__file__)),"rev-parse","--short","HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+except Exception: _GIT_SHA = "unknown"
 try: from scipy.optimize import linear_sum_assignment; HAS=True
 except Exception: HAS=False
 def _v4(x): return x.view(-1,1,1,1)
@@ -107,16 +112,18 @@ def main():
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed)
     H,W=480,240
     global VAL_Z0, DER
-    DER.update(build_derangement(TR,a.text_emb)); DER.update(build_derangement(VAL_STEMS,a.text_emb))   # FIX2/joint: mode-matched derangement
+    der_mode = "both" if a.arch=="drica" else a.text_emb   # DRICA always uses region+direction+joint
+    DER.update(build_derangement(TR,der_mode)); DER.update(build_derangement(VAL_STEMS,der_mode))   # FIX2/joint: mode-matched derangement
     g_val=torch.Generator().manual_seed(20260707)   # FIX3 fixed val noise shared across all models/modes
     VAL_Z0={s:torch.randn(1,1,H,W,generator=g_val) for s in sorted(Paired("val.txt",H,W).stems)}
     g_data=torch.Generator().manual_seed(a.seed+12345)   # FIX3 dataloader order independent of model-init RNG
     if a.arch=="drica":
         from models.dit_drica import MFDiTDRICA
+        print("[import] MFDiTDRICA <- %s" % inspect.getfile(MFDiTDRICA), flush=True)
         model=MFDiTDRICA(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),rope=bool(a.rope),drica_layer_ids=tuple(int(x) for x in a.drica_layers.split(","))).to(dev)
     else:
         model=MFDiT(img_size=(H,W),patch_size=8,data_channels=1,cond_channels=1,dim=384,depth=12,num_heads=6,text=(a.text!="off"),attn_type=a.attn,inner_lr=a.inner_lr,cpe=bool(a.cpe),text_emb=a.text_emb,inject=a.inject,rope=bool(a.rope)).to(dev)
-    mf=MeanFlow(channels=1,image_size=H,normalizer=['mean_std',[0.5],[0.5]],flow_ratio=0.75,time_dist=['lognorm',-0.4,1.0])
+    mf=MeanFlow(channels=1,image_size=(H,W),normalizer=['mean_std',[0.5],[0.5]],flow_ratio=0.75,time_dist=['lognorm',-0.4,1.0])
     print("CMF arch=%s attn=%s inner_lr=%.2f cpe=%d text=%s trainable=%.2fM"%(a.arch,a.attn,a.inner_lr,a.cpe,a.text,sum(p.numel() for p in model.parameters())/1e6),flush=True)
     opt=torch.optim.AdamW(model.parameters(),lr=a.lr,weight_decay=0.0); ema=[p.detach().clone() for p in model.parameters()]
     def emaup(d=0.999):
@@ -140,6 +147,6 @@ def main():
             s1,p1,l1=evaluate(mf,model,H,W,dev,a.nfe,a.text)
             for p,b in zip(model.parameters(),bk): p.data.copy_(b)
             log("  [eval ema %d] %dNFE SSIM=%.4f PSNR=%.3f LPIPS=%.4f"%(step,a.nfe,s1,p1,l1))
-            torch.save({"model":model.state_dict(),"ema":[e.cpu() for e in ema],"step":step,"text":a.text},os.path.join(odir,"step_%d.pt"%step))
+            torch.save({"model":model.state_dict(),"ema":[e.cpu() for e in ema],"step":step,"text":a.text,"cfg":vars(a),"commit":_GIT_SHA},os.path.join(odir,"step_%d.pt"%step))
     log("CMF_DONE text=%s"%a.text)
 if __name__=="__main__": main()

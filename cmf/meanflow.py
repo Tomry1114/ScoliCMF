@@ -103,6 +103,7 @@ class MeanFlow:
         model: torch.nn.Module,
         cond_img: torch.Tensor,
         sample_steps: int = 5,
+        model_kwargs: Optional[dict] = None,
         device: str = 'cuda',
         show_progress: bool = True,
     ) -> torch.Tensor:
@@ -122,7 +123,7 @@ class MeanFlow:
             t_ = rearrange(t, "b -> b 1 1 1")
             r_ = rearrange(r, "b -> b 1 1 1")
 
-            v = model(z, t, r, cond_img)
+            v = model(z, t, r, cond_img, **(model_kwargs or {}))
             z = z - (t_ - r_) * v
 
         return self.normer.unnorm(z)

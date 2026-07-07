@@ -48,6 +48,9 @@ class MFDiTDRICA(nn.Module):
             nn.init.zeros_(blk.adaLN_modulation[-1].weight); nn.init.zeros_(blk.adaLN_modulation[-1].bias)
         nn.init.zeros_(self.final_layer.adaLN_modulation[-1].weight); nn.init.zeros_(self.final_layer.adaLN_modulation[-1].bias)
         nn.init.zeros_(self.final_layer.linear.weight); nn.init.zeros_(self.final_layer.linear.bias)
+        for blk in self.blocks:                       # CPE depthwise conv zero-init (only built when cpe=True)
+            if getattr(blk, "cpe_on", False):
+                nn.init.zeros_(blk.cpe.weight); nn.init.zeros_(blk.cpe.bias)
 
     def unpatchify(self, x):
         c, p, gh, gw = self.out_channels, self.patch_size, self.gh, self.gw

@@ -2,6 +2,18 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-07 — DRICA review 4 必修 + checkpoint 元数据(用户 review)
+
+- 用户 review 判定 DRICA 主设计正确(真 routing:Q=术后生成态、K/V=术前影像、region→纵向 logits、direction→横向 logits、joint→轴向耦合、(t,r)→强度/组合)。修 4 个集成错误:
+- **#1 DRICA CPE 零初始化**:`MFDiTDRICA._init_weights` 只重置了 Linear/output_proj/AdaLN/final,漏了 CPE 深度卷积;`--arch drica --cpe 1` 会让随机 CPE 从第一步进主干。加回 cpe_on 块的 `zeros_`(默认 cpe=0 不受影响)。验证:cpe=True 12 块全零。
+- **#2 DRICA derangement 强制 both**:DRICA 永远用 region+direction+joint,但 shuffle 距离仍受 `--text_emb`(默认 factorized)控制,忽略 joint。改 `der_mode = "both" if arch==drica else text_emb`。验证:text=shuffle drica 跑通。
+- **#3 sys.path shadow**:`insert(0, ScoliCMF_cmf)` 让 GPU 实际 import `_cmf` 而非 GitHub 的 ScoliCMF。改成"train_cmf.py 自己的目录优先"(`dirname(__file__)`)+ append ~/ScoliCMF 仅供 metrics_img;启动打印 `inspect.getfile`。验证:`[import]` 全指向 ScoliCMF/cmf。
+- **#4 MeanFlow (H,W) + sample_given_cond model_kwargs**:训练入口 `image_size=(H,W)`(原 H=480 会让通用采样出 480×480);`sample_given_cond` 加 `model_kwargs`,内部 `model(z,t,r,cond,**mk)`,否则 DRICA 缺 diagnosis 会崩。验证:height/width 480/240、带 model_kwargs 采样通。
+- **checkpoint 元数据**:torch.save 增加 `cfg=vars(a)` + `commit=_GIT_SHA`(原来只存 model/ema/step/text)。
+- **待办(机制加强,用户"再考虑")**:① joint 直接调制耦合(gamma/beta 或 per-head gate),不只当分支权重;② interval per-head 直接改 vbias/hbias 的检索位置(scale_head → [B,heads,4])。另 return_aux 已声明未接线。
+- **不影响排队作业**(9952042 MFDiT ttt+rope、9952559 DRICA vanilla,均 --text on/cpe0,不碰这些路径)。
+- **产物**:verify_review4.py。
+
 ## 2026-07-07 — 新架构 DRICA(Diagnosis-Routed Interval Cross-Attention),替代 FGA
 
 - **想法**:不再"额外加一个 attention",而是把术前图像条件路径改造成检索:当前生成态 z_t = Query,术前影像 = Key/Value,诊断(region/direction/joint)路由"从术前影像何处检索",MeanFlow 区间 (t,r) 决定检索强度/方式。
