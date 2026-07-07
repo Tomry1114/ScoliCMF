@@ -2,6 +2,14 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-07 — 修 joint 模式两个实现错误(用户 review)
+
+- **Bug A:joint 在 spatial 模式是死参数**。`spatial_bias` 只读 region_prob/direction_prob + region/direction profile,从不读 joint_prob;且 spatial profile 只按 inject 建、不按 text_emb。→ factorized/joint/both + spatial 三者空间机制完全相同,joint_embedding 白建。**修**:spatial profile 按 text_emb 建;joint/both 额外建 `joint_vprofile/joint_hprofile`(6 个独立 (行,列) profile,能编码 region⊕direction 编码不了的相关性);`spatial_bias` 按 text_emb 累加 factorized 和/或 joint 贡献。
+- **Bug B:joint 模式的 shuffle 不是 joint-space derangement**。`build_derangement` 距离恒为 `L1(concat(Q_REGION,Q_DIRECTION))`,没用 Q_JOINT,且 DER 在模块加载时就固定,与 --text_emb 无关。→ 两病例 marginals 相近但 joint correlation 不同时,距离看不见差异。**修**:`_der_feat` 距离空间随 text_emb 变(joint→Q_JOINT,both→三者拼接,factorized→原样);DER 移到 main(),等 --text_emb 定后按匹配空间构建。
+- **不影响正在跑的完整版**(factorized+global,既不碰 joint 也不用 shuffle);语义不变,无需重启作业 9952042。
+- **验证(debug GPU)**:(a) 各模式 profile 建对;(b) joint spatial_bias 随 joint_prob 变 rel-diff 1.41(原恒 0);(c) joint+spatial/both+both/factorized+spatial forward 均通;(d) _der_feat 维度 5/6/11,factorized-vs-joint derangement 18/20 例不同。
+- **产物**:verify_joint.py。
+
 ## 2026-07-07 — TTT×MeanFlow 解耦 #3:2D RoPE 补位置(+ cudnn 修复)
 
 - **#3 病因**:TTT 主分支(SwiGLU)置换等变,位置只靠一次性冻结 sincos,过 12 层稀释;ViT³ 原用 CPE 补位置,搬 mixer 时没搬。

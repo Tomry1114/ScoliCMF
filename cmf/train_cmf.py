@@ -34,13 +34,17 @@ TR=[l.strip() for l in open(os.path.join(HOME,"splits/train.txt")) if l.strip() 
 REGION_PRIOR=np.mean([Q_REGION[s] for s in TR],0).astype(np.float32)
 DIRECTION_PRIOR=np.mean([Q_DIRECTION[s] for s in TR],0).astype(np.float32)
 JOINT_PRIOR=np.mean([Q_JOINT[s] for s in TR],0).astype(np.float32)
-def build_derangement(stems):   # Hungarian max-dist on joint [region|direction]; store the WRONG stem
-    S=np.stack([np.concatenate([Q_REGION[s],Q_DIRECTION[s]]) for s in stems])
+def _der_feat(s,text_emb):   # distance space matches the ACTIVE conditioning
+    if text_emb=="joint": return Q_JOINT[s]                                    # joint: max joint-dist mismatch
+    if text_emb=="both":  return np.concatenate([Q_REGION[s],Q_DIRECTION[s],Q_JOINT[s]])
+    return np.concatenate([Q_REGION[s],Q_DIRECTION[s]])                        # factorized: marginal mismatch
+def build_derangement(stems,text_emb="factorized"):   # Hungarian max-dist; store the WRONG stem
+    S=np.stack([_der_feat(s,text_emb) for s in stems])
     D=np.abs(S[:,None]-S[None]).sum(-1); np.fill_diagonal(D,-1e9)
     perm=linear_sum_assignment(-D)[1] if HAS else D.argmax(1)
     return {stems[i]:stems[perm[i]] for i in range(len(stems))}
 VAL_STEMS=[l.strip() for l in open(os.path.join(HOME,"splits/val.txt")) if l.strip() and l.strip() in Q_REGION]
-DER={**build_derangement(TR), **build_derangement(VAL_STEMS)}   # FIX2: derange val too (shuffle eval was silently matched on val)
+DER={}   # FIX2/joint: built in main() once --text_emb known, over the matching distance space
 VAL_Z0=None   # FIX3: fixed per-stem val noise, set in main
 def agent_condition_of(stems,dev,mode):   # -> (region[B,3], direction[B,2], joint[B,6]) or (None,None,None)
     if mode=="off": return None,None,None
@@ -90,7 +94,8 @@ def main():
     ap.add_argument("--text_emb",default="factorized",choices=["factorized","joint","both"]); ap.add_argument("--inject",default="global",choices=["global","spatial","both"])
     a=ap.parse_args(); dev="cuda" if torch.cuda.is_available() else "cpu"; torch.manual_seed(a.seed); np.random.seed(a.seed)
     H,W=480,240
-    global VAL_Z0
+    global VAL_Z0, DER
+    DER.update(build_derangement(TR,a.text_emb)); DER.update(build_derangement(VAL_STEMS,a.text_emb))   # FIX2/joint: mode-matched derangement
     g_val=torch.Generator().manual_seed(20260707)   # FIX3 fixed val noise shared across all models/modes
     VAL_Z0={s:torch.randn(1,1,H,W,generator=g_val) for s in sorted(Paired("val.txt",H,W).stems)}
     g_data=torch.Generator().manual_seed(a.seed+12345)   # FIX3 dataloader order independent of model-init RNG

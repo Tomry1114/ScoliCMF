@@ -116,8 +116,12 @@ class MFDiT(nn.Module):
             if inject in ("global", "both"):
                 self.agent_adapter = nn.Sequential(nn.Linear(D, dim), nn.SiLU(), nn.Linear(dim, dim))
             if inject in ("spatial", "both"):         # region->vertical rows, direction->horizontal cols; zero-init
-                self.region_vprofile = nn.Parameter(torch.zeros(NUM_REGIONS, self.gh, dim))
-                self.direction_hprofile = nn.Parameter(torch.zeros(NUM_DIRECTIONS, self.gw, dim))
+                if text_emb in ("factorized", "both"):
+                    self.region_vprofile = nn.Parameter(torch.zeros(NUM_REGIONS, self.gh, dim))
+                    self.direction_hprofile = nn.Parameter(torch.zeros(NUM_DIRECTIONS, self.gw, dim))
+                if text_emb in ("joint", "both"):   # joint spatial: 6 independent (row,col) profiles -> encodes correlation
+                    self.joint_vprofile = nn.Parameter(torch.zeros(NUM_REGIONS * NUM_DIRECTIONS, self.gh, dim))
+                    self.joint_hprofile = nn.Parameter(torch.zeros(NUM_REGIONS * NUM_DIRECTIONS, self.gw, dim))
         self.initialize_weights()
     def _agent_vec(self):   # concat enabled soft-weighted embeddings
         parts = []
@@ -129,10 +133,17 @@ class MFDiT(nn.Module):
         return torch.cat(parts, dim=-1)
     def encode_agent_condition(self):
         return self.agent_adapter(self._agent_vec())
-    def spatial_bias(self, B):   # region->vertical (rows), direction->horizontal (cols); per-token additive
-        vbias = torch.einsum("br,rhd->bhd", self.region_prob, self.region_vprofile)
-        hbias = torch.einsum("bk,kwd->bwd", self.direction_prob, self.direction_hprofile)
-        return (vbias[:, :, None, :] + hbias[:, None, :, :]).reshape(B, self.gh * self.gw, -1)
+    def spatial_bias(self, B):   # per-token additive; factorized -> marginal row/col, joint -> per-class row/col
+        bias = 0
+        if self.text_emb in ("factorized", "both"):
+            vbias = torch.einsum("br,rhd->bhd", self.region_prob, self.region_vprofile)
+            hbias = torch.einsum("bk,kwd->bwd", self.direction_prob, self.direction_hprofile)
+            bias = bias + vbias[:, :, None, :] + hbias[:, None, :, :]
+        if self.text_emb in ("joint", "both"):   # FIX: joint was previously never used in spatial injection
+            jv = torch.einsum("bj,jhd->bhd", self.joint_prob, self.joint_vprofile)
+            jh = torch.einsum("bj,jwd->bwd", self.joint_prob, self.joint_hprofile)
+            bias = bias + jv[:, :, None, :] + jh[:, None, :, :]
+        return bias.reshape(B, self.gh * self.gw, -1)
     def initialize_weights(self):
         def _init(m):
             if isinstance(m, nn.Linear):
