@@ -2,6 +2,14 @@
 
 > 每一步改动都追加在最上面（倒序，最新在前）。
 
+## 2026-07-08 — DRICA 加"无门全局检索"分支(修肋骨学不好)
+
+- **动机**:20k 定版对比后肉眼诊断(montage_i2sb_vs_ours):Ours 生成清晰有内固定的术后片(LPIPS 全场第二,I2SB 是模糊均值图=SSIM/PSNR 被模糊 gaming),但**肋骨/软组织学得乱**(瞎编、过度纹理)。根因:noise→postop 从零重画整图,而条件(诊断=脊柱表型)只管脊柱、FGA 全局池化丢空间、DRICA 检索是脊柱区域路由 → 术前图里现成的肋骨(术后基本不变)没被 copy。
+- **修法 B(用户选)**:DRICABlock 加 `GlobalCrossAttention`——**不受诊断门控**的普通多头 cross-attention(current=Q,source=K/V,任意位置→任意位置),让不变解剖从对齐的术前图直接 copy。用 IntervalEncoder 新增的 per-head `s_global`(scale_head 4→5 路)门控,融进 update:`upd = ... + sg*out_g`。零初始化残差保持,起步恒等。
+- **JVP 安全**(全局 softmax attention 不破坏双反传):params 40.45M(+1.34M)、max|dudt| 705、零 NaN/Inf、loss backward 329 张量全有限、diagnosis 敏感度 3.7e-3;端到端 CMF_DONE。
+- **显存**:全局 N×N(1800²)注意力 ×3 DRICA 块增显存,A40 debug 用 bs=2;a800 完整训练可能需 bs≤4。
+- **下一步**:启动 DRICA-v2 完整训练,20k 后过 eval_common + montage 看肋骨是否改善。
+
 ## 2026-07-07 — DRICA 两个机制加强(joint 直接耦合 + interval per-head 改检索位置)
 
 - **加强① joint 调制耦合(不只当分支权重)**:`DRICABlock.joint_modulator: Linear(dim,2dim)` 从 joint_ctx 出 (gamma,beta),对 `out_v*out_h` 做 FiLM → `(1+γ)·(out_v⊙out_h)+β`。**零初始化** → 起步 γ=β=0 = 原耦合(恒等)。现在不同 joint phenotype 真的改变纵横耦合方式,不只是决定 joint 分支占多少。DiagnosisRouter 额外返回 joint_ctx。

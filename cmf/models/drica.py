@@ -17,15 +17,16 @@ NUM_REGIONS, NUM_DIRECTIONS, NUM_JOINT = 3, 2, 6
 
 class IntervalEncoder(nn.Module):
     """MeanFlow interval (t,r) -> context vector + PER-HEAD route strengths in (0,1):
-    [s_v (vertical retrieval-bias), s_h (horizontal retrieval-bias), s_j (joint coupling), s_res (residual)]."""
+    [s_v (vertical retrieval-bias), s_h (horizontal retrieval-bias), s_j (joint coupling), s_res (residual),
+     s_g (ungated GLOBAL retrieval = copy unchanged anatomy e.g. ribs from the aligned pre-op image)]."""
     def __init__(self, dim, num_heads):
         super().__init__()
         self.num_heads = num_heads
         self.enc = nn.Sequential(nn.Linear(2 * dim, dim), nn.SiLU(), nn.Linear(dim, dim))
-        self.scale_head = nn.Linear(dim, num_heads * 4)
+        self.scale_head = nn.Linear(dim, num_heads * 5)
     def forward(self, p, q):                   # p = t_emb+r_emb, q = t_emb-r_emb  (each [B,dim])
         ctx = self.enc(torch.cat([p, q], dim=-1))
-        scales = torch.sigmoid(self.scale_head(ctx)).reshape(-1, self.num_heads, 4)   # [B,heads,4]
+        scales = torch.sigmoid(self.scale_head(ctx)).reshape(-1, self.num_heads, 5)   # [B,heads,5]
         return ctx, scales
 
 
@@ -83,6 +84,27 @@ class AxialCrossAttention(nn.Module):
         return out                                                        # [B,H,W,heads,hd]
 
 
+class GlobalCrossAttention(nn.Module):
+    """Plain (un-routed, no diagnosis bias) multi-head cross-attention: current queries ALL source tokens.
+    Lets any post-op position copy evidence from any pre-op position -> preserves anatomy that barely changes
+    surgically (ribs / soft tissue), which the spine-routed axial branches never retrieve.
+    Returns [B,H,W,heads,head_dim]."""
+    def __init__(self, dim, num_heads):
+        super().__init__()
+        self.nh, self.hd = num_heads, dim // num_heads
+        self.q = nn.Linear(dim, dim); self.k = nn.Linear(dim, dim); self.v = nn.Linear(dim, dim)
+        self.qn = nn.LayerNorm(self.hd); self.kn = nn.LayerNorm(self.hd)
+        self.scale = self.hd ** -0.5
+    def forward(self, current, source):        # [B,H,W,D]
+        B, H, W, D = current.shape; N = H * W
+        cur = current.reshape(B, N, D); src = source.reshape(B, N, D)
+        q = self.qn(self.q(cur).reshape(B, N, self.nh, self.hd)).transpose(1, 2)   # [B,heads,N,hd]
+        k = self.kn(self.k(src).reshape(B, N, self.nh, self.hd)).transpose(1, 2)
+        v = self.v(src).reshape(B, N, self.nh, self.hd).transpose(1, 2)
+        out = ((q @ k.transpose(-2, -1)) * self.scale).softmax(dim=-1) @ v          # [B,heads,N,hd]
+        return out.transpose(1, 2).reshape(B, H, W, self.nh, self.hd)
+
+
 class DRICABlock(nn.Module):
     """Diagnosis-routed axial retrieval from source into current; interval per-head modulates retrieval
     location + coupling + residual; joint FiLM modulates the vertical*horizontal coupling; zero-init
@@ -94,6 +116,7 @@ class DRICABlock(nn.Module):
         self.router = DiagnosisRouter(dim, num_heads, grid_h, grid_w)
         self.vca = AxialCrossAttention(dim, num_heads, "v")
         self.hca = AxialCrossAttention(dim, num_heads, "h")
+        self.gca = GlobalCrossAttention(dim, num_heads)  # ungated global retrieval (copy unchanged anatomy: ribs)
         self.joint_modulator = nn.Linear(dim, 2 * dim)   # joint -> FiLM (gamma,beta) on the coupling
         self.joint_proj = nn.Linear(dim, dim)
         self.output_proj = nn.Linear(dim, dim)
@@ -107,9 +130,11 @@ class DRICABlock(nn.Module):
         vbias, hbias, branch, joint_ctx = self.router(region_prob, direction_prob, joint_prob, interval_ctx)
         sv = scales[:, :, 0]; sh = scales[:, :, 1]                          # per-head [B,heads]
         sj = scales[:, :, 2].reshape(B, 1, 1, self.nh, 1); sr = scales[:, :, 3].reshape(B, 1, 1, self.nh, 1)
+        sg = scales[:, :, 4].reshape(B, 1, 1, self.nh, 1)                  # global-retrieval (copy) strength
         # interval per-head scales the diagnosis retrieval-bias BEFORE attention -> "where to retrieve"
         out_v = self.vca(cur, src, vbias * sv[:, :, None])                 # [B,H,W,heads,hd]
         out_h = self.hca(cur, src, hbias * sh[:, :, None])
+        out_g = self.gca(cur, src)                                         # ungated global copy (ribs/soft tissue)
         # joint FiLM modulates HOW vertical/horizontal couple (gamma,beta start 0 -> plain out_v*out_h)
         gamma, beta = self.joint_modulator(joint_ctx).chunk(2, dim=-1)     # [B,D] each
         coupled = (1 + gamma[:, None, None, :]) * (out_v.reshape(B, H, W, D) * out_h.reshape(B, H, W, D)) + beta[:, None, None, :]
@@ -117,7 +142,7 @@ class DRICABlock(nn.Module):
         av = branch[..., 0].reshape(B, 1, 1, self.nh, 1)                   # per-head branch weights
         ah = branch[..., 1].reshape(B, 1, 1, self.nh, 1)
         aj = branch[..., 2].reshape(B, 1, 1, self.nh, 1)
-        upd = av * out_v + ah * out_h + aj * sj * out_j                    # branch fusion (sj = joint coupling strength)
+        upd = av * out_v + ah * out_h + aj * sj * out_j + sg * out_g       # + ungated global copy branch
         upd = (sr * upd).reshape(B, H, W, D)                              # per-head interval residual strength
         upd = self.output_proj(upd).reshape(B, N, D)
         out = current_tokens + upd
